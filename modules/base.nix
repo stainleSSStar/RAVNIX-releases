@@ -10,6 +10,7 @@
   networking.hostName = lib.mkDefault "ravnix";
   networking.networkmanager.enable = true;
   networking.networkmanager.plugins = lib.mkForce [ ];
+  networking.modemmanager.enable = false;
   networking.firewall.enable = true;
   services.openssh.enable = false;
   services.xserver.enable = false;
