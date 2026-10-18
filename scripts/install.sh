@@ -106,8 +106,8 @@ main() {
  efi=$(partition_path "$disk" 1)
  [[ $mode != uefi ]] || mkfs.fat -F 32 -n RAVNIX_EFI "$efi"
  mkfs.ext4 -F -L RAVNIX_ROOT "$root"
- mount "$root" /mnt
- if [[ $mode == uefi ]]; then mkdir -p /mnt/boot/efi; mount "$efi" /mnt/boot/efi; fi
+ mount -t ext4 "$root" /mnt
+ if [[ $mode == uefi ]]; then mkdir -p /mnt/boot/efi; mount -t vfat "$efi" /mnt/boot/efi; fi
  mkdir -p /mnt/etc/nixos
  cp -R /etc/ravnix/source/. /mnt/etc/nixos/
  chmod -R u+w /mnt/etc/nixos

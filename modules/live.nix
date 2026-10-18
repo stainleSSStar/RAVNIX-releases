@@ -12,6 +12,9 @@ let
 in {
   imports = [ "${modulesPath}/installer/cd-dvd/iso-image.nix" ];
   hardware.enableAllHardware = true;
+  # The bare ISO module only includes its own squashfs/ISO/tmpfs mounts.
+  # Include exactly the filesystems our text installer creates.
+  boot.supportedFilesystems = [ "ext4" "vfat" ];
   image.baseName = lib.mkForce "ravnix-26.05-x86_64";
   isoImage = {
     volumeID = "RAVNIX_2605";
