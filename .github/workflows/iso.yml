@@ -1,0 +1,94 @@
+name: Build RAVNIX ISO
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_iso:
+        description: Build the console ISO and run BIOS/UEFI installation tests
+        type: boolean
+        default: true
+      publish_release:
+        description: Publish only after all ISO tests pass
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: ravnix-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+      - name: Source and installer guard tests
+        run: |
+          python3 scripts/check.py
+          python3 -m unittest discover -s tests -v
+      - name: Evaluate pinned live, BIOS and UEFI systems
+        run: |
+          nix flake lock
+          git add flake.lock
+          echo RAVNIX_LOCK_BEGIN
+          cat flake.lock
+          echo RAVNIX_LOCK_END
+          nix flake check --no-build --show-trace
+  iso:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && inputs.build_iso
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            max-jobs = 2
+      - name: Build pinned console ISO
+        run: |
+          mkdir out
+          nix flake lock
+          git add flake.lock
+          nix build .#iso -L 2>&1 | tee out/build.log
+          cp result/iso/*.iso out/
+          cp flake.lock out/flake.lock
+          cp docs/GUIDE.md out/GUIDE.md
+          nix path-info --recursive .#nixosConfigurations.live.config.system.build.toplevel > out/live-store-paths.txt
+          nix path-info --closure-size .#nixosConfigurations.live.config.system.build.toplevel > out/closure-size.txt
+          printf 'Source: %s\nNixpkgs: 26f4107e47e3ad0ffd0db220469ba83b6f6d96e8\n' "$GITHUB_SHA" > out/build-info.txt
+          (cd out && sha256sum *.iso > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - name: Test actual ISO and text installer in BIOS and UEFI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+          python3 scripts/vm-test.py out/*.iso 2>&1 | tee out/vm-tests.log
+      - name: Publish complete tested release
+        if: success() && inputs.publish_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          isos=(out/*.iso)
+          [[ ${#isos[@]} == 1 && -s ${isos[0]} ]]
+          (cd out && sha256sum -c SHA256SUMS)
+          grep -qx 'PASS: BIOS and UEFI live, text installation, password login, rebuild and reboot.' out/VM-TESTS.txt
+          tag="v26.05-r${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" --draft --latest=false --title "RAVNIX 26.05 TTY (build ${GITHUB_RUN_NUMBER})" --notes "Minimal console-only NixOS derivative. Source: ${GITHUB_SHA}. BIOS and UEFI live, actual text installation, password-required sudo, rebuild and reboot tests passed. No graphical stack. See GUIDE.md, SHA256SUMS and VM logs. Physical hardware and Secure Boot are not covered."
+          for asset in out/*; do
+            [[ -s $asset ]] || continue
+            gh release upload "$tag" "$asset"
+          done
+          gh release edit "$tag" --draft=false --prerelease=false --latest=true
