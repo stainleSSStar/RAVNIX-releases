@@ -35,3 +35,10 @@ class VMProtocol(unittest.TestCase):
                          [b'\x1b[1;1R',b'\x1b[?1;2c'])
         console.answer_terminal_queries(b'plain text')
         self.assertEqual(connection.sendall.call_count,2)
+
+    def test_boot_menu_arrow_is_not_a_fish_prompt(self):
+        console=Mock()
+        vm.quiet_bash(console,live=True)
+        self.assertEqual(console.expect.call_args_list[0].args[0],b'ravnix@ravnix ~ > ')
+        vm.quiet_bash(console,live=False)
+        self.assertEqual(console.expect.call_args_list[3].args[0],b'tester@ravnix-test ~ > ')

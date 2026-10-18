@@ -175,7 +175,8 @@ def poweroff(console):
 
 
 def quiet_bash(console, live=False):
-    console.expect(b' > ',timeout=600)
+    prompt = b'ravnix@ravnix ~ > ' if live else b'tester@ravnix-test ~ > '
+    console.expect(prompt,timeout=600)
     console.send(('sudo -n ' if live else 'exec ')+'bash --noprofile --norc\n')
     console.expect(b'# ' if live else b'$ ',timeout=30)
     console.send('stty -echo; printf "\\nRAVNIX_SERIAL_READY\\n"\n')
