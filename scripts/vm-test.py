@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Test the actual release ISO and text installer on disposable QEMU disks only."""
 import argparse
-import os
 import re
 from pathlib import Path
 import shlex
@@ -33,6 +32,7 @@ class Console:
             if not chunk:
                 raise RuntimeError('Serial console closed')
             self.data.extend(chunk)
+            print(chunk.decode('utf-8', 'replace'), end='', flush=True)
             self.answer_terminal_queries(chunk)
             if b'\r\nRAVNIX_VM_FAIL\r\n' in self.data[self.cursor:]:
                 raise RuntimeError('Guest probe failed')
@@ -145,7 +145,7 @@ def command(directory, mode, disk, iso=None):
     serial.unlink(missing_ok=True)
     args = ['qemu-system-x86_64','-m','4096','-smp','2','-display','none',
             '-serial',f'unix:{serial},server=on,wait=off','-nic','user,model=virtio-net-pci',
-            '-machine','accel=kvm:tcg' if os.access('/dev/kvm',os.R_OK|os.W_OK) else 'accel=tcg',
+            '-machine','accel=tcg',
             '-drive',f'file={disk},format=qcow2,if=none,id=target']
     if mode == 'bios':
         args += ['-device','ich9-ahci,id=sata','-device','ide-hd,drive=target,bus=sata.0,serial=RAVNIXTEST']
