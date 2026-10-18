@@ -79,12 +79,13 @@ main() {
  validate_disk "$disk"
  current=$(lsblk -bdn -o MAJ:MIN,SIZE,MODEL,SERIAL "$disk") || fail 'Cannot inspect disk identity.'
  [[ $identity == "$current" ]] || fail 'Disk identity changed; cancelled.'
+ [[ $disk =~ ^/dev/[a-zA-Z0-9/_.:+-]+$ ]] || fail 'Unsupported device path.'
  bootdevice=$disk
  # BIOS GRUB must keep working when Linux changes /dev/sdX enumeration.
  if [[ $mode == bios ]]; then
   local link
   for link in /dev/disk/by-id/*; do
-   [[ -L $link && $link != *-part[0-9]* ]] || continue
+   [[ -L $link && $link != *-part[0-9]* && $link =~ ^/dev/[a-zA-Z0-9/_.:+-]+$ ]] || continue
    if [[ $(readlink -f "$link") == "$disk" ]]; then bootdevice=$link; break; fi
   done
  fi

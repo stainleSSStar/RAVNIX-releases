@@ -12,7 +12,7 @@ let
 in {
   imports = [ "${modulesPath}/installer/cd-dvd/iso-image.nix" ];
   hardware.enableAllHardware = true;
-  image.baseName = "ravnix-26.05-x86_64";
+  image.baseName = lib.mkForce "ravnix-26.05-x86_64";
   isoImage = {
     volumeID = "RAVNIX_2605";
     makeBiosBootable = true;
