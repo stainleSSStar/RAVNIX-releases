@@ -2,6 +2,7 @@
 """Test the actual release ISO and text installer on disposable QEMU disks only."""
 import argparse
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -18,6 +19,7 @@ class Console:
         self.deadline = time.monotonic() + timeout
         self.data = bytearray()
         self.cursor = 0
+        self.terminal_buffer = b''
 
     def expect(self, pattern, timeout=900):
         until = min(self.deadline, time.monotonic() + timeout)
@@ -31,12 +33,38 @@ class Console:
             if not chunk:
                 raise RuntimeError('Serial console closed')
             self.data.extend(chunk)
+            self.answer_terminal_queries(chunk)
             if b'\r\nRAVNIX_VM_FAIL\r\n' in self.data[self.cursor:]:
                 raise RuntimeError('Guest probe failed')
         self.cursor = self.data.index(pattern, self.cursor) + len(pattern)
 
+    def answer_terminal_queries(self, chunk):
+        # Fish/agetty query a real terminal before accepting interactive input.
+        # Replies describe a basic ANSI terminal, not a graphics test shortcut.
+        self.terminal_buffer += chunk
+        pattern = rb'\x1b(?:\[6n|\[(?:0)?c|\[\?u|\[>0q|\]11;\?(?:\x07|\x1b\\)|P\+q[^\x1b]*\x1b\\)'
+        matches = list(re.finditer(pattern, self.terminal_buffer))
+        for match in matches:
+            query = match.group()
+            if query == b'\x1b[6n':
+                reply = b'\x1b[1;1R'
+            elif query in (b'\x1b[c', b'\x1b[0c'):
+                reply = b'\x1b[?1;2c'
+            elif query == b'\x1b[?u':
+                reply = b'\x1b[?0u'
+            elif query == b'\x1b[>0q':
+                reply = b'\x1bP>|RAVNIX-test-terminal\x1b\\'
+            elif query.startswith(b'\x1b]11;'):
+                reply = b'\x1b]11;rgb:0000/0000/0000\x1b\\'
+            else:
+                reply = b'\x1bP0+r\x1b\\'
+            self.connection.sendall(reply)
+        if matches:
+            self.terminal_buffer = self.terminal_buffer[matches[-1].end():]
+        self.terminal_buffer = self.terminal_buffer[-256:]
+
     def send(self, text):
-        self.connection.sendall(text.encode())
+        self.connection.sendall(text.replace('\n', '\r').encode())
 
     def run(self, body, marker, timeout=900):
         script = 'set -Eeuo pipefail; trap \'printf "\\nRAVNIX_VM_FAIL\\n"\' ERR; ' + body

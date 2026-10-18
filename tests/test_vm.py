@@ -24,3 +24,14 @@ class VMProtocol(unittest.TestCase):
         console=Mock();console.process.wait.return_value=1
         with self.assertRaisesRegex(RuntimeError,'QEMU exited'):
             vm.poweroff(console)
+
+    def test_fragmented_fish_terminal_queries_receive_replies(self):
+        connection=Mock();process=Mock()
+        console=vm.Console(connection,process,30)
+        console.answer_terminal_queries(b'hello\x1b[')
+        connection.sendall.assert_not_called()
+        console.answer_terminal_queries(b'6n\x1b[0c')
+        self.assertEqual([x.args[0] for x in connection.sendall.call_args_list],
+                         [b'\x1b[1;1R',b'\x1b[?1;2c'])
+        console.answer_terminal_queries(b'plain text')
+        self.assertEqual(connection.sendall.call_count,2)

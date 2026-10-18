@@ -29,11 +29,24 @@ nix flake check --no-build
 ```
 
 Push/PR runs validation. **Actions → Build RAVNIX ISO → Run workflow** builds
-and tests the actual ISO and text installer in BIOS and UEFI, then publishes a
-release in **this repository**. It preserves the repository's visibility and
-uses GitHub Releases, not the quota-limited Actions artifact store. Uploads stay
-in a draft until every file is present. Failed builds/tests do not publish.
-`publish_release=false` allows a non-publishing test run.
+and tests the actual ISO and text installer in BIOS and UEFI. With `stage_release`
+enabled, only a successful test run uploads its files to a private draft in this
+source repository. No Actions artifact storage is used. Failed tests do not stage
+an ISO. The built-in token stays scoped to this repository; no personal credential
+is stored in Actions.
+
+To publish a tested draft to the public
+**[RAVNIX-releases](https://github.com/stainleSSStar/RAVNIX-releases/releases)**
+repository from a workstation with `gh` authenticated:
+
+```sh
+bash scripts/publish-release.sh v26.05-rBUILD_NUMBER
+```
+
+The command downloads the tested files, verifies their checksum and test report,
+uploads a draft in the public releases repository, then publishes only after all
+uploads succeed. The source repository stays private. `stage_release=false`
+performs an ephemeral build/test without saving the ISO.
 
 Each release includes ISO, SHA256SUMS, exact source/Nixpkgs revisions, store-path
 manifest, closure size, guide, lockfile and VM/build logs. Verify SHA256SUMS before
