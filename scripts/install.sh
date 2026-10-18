@@ -9,13 +9,14 @@ validate_username() {
  ! getent passwd "$1" >/dev/null || fail 'Username already exists; choose another.'
 }
 validate_disk() {
- local disk=$1 mounts types readonly size name holders
+ local disk=$1 mounts types read_only size name holders
  [[ -b $disk ]] || fail 'Select a block device.'
  [[ $(lsblk -dn -o TYPE "$disk") == disk ]] || fail 'Select a whole disk, not a partition.'
- readonly=$(lsblk -dn -o RO "$disk") || fail 'Cannot inspect disk.'
- [[ $readonly == 0 ]] || fail 'Disk is read-only.'
+ read_only=$(lsblk -dn -o RO "$disk") || fail 'Cannot inspect disk.'
+ [[ $read_only == 0 ]] || fail 'Disk is read-only.'
  size=$(lsblk -bdn -o SIZE "$disk") || fail 'Cannot inspect size.'
- [[ $size =~ ^[0-9]+$ ]] && ((size >= 16 * 1024 * 1024 * 1024)) || fail 'Disk must be at least 16 GiB.'
+ [[ $size =~ ^[0-9]+$ ]] || fail 'Cannot read numeric disk size.'
+ ((size >= 16 * 1024 * 1024 * 1024)) || fail 'Disk must be at least 16 GiB.'
  mounts=$(lsblk -nr -o MOUNTPOINTS "$disk") || fail 'Cannot inspect mounts.'
  [[ -z ${mounts//[[:space:]]/} ]] || fail 'Disk has mounted filesystems or active swap; it may be the live USB.'
  types=$(lsblk -nr -o TYPE "$disk") || fail 'Cannot inspect disk children.'

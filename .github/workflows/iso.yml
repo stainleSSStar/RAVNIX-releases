@@ -13,6 +13,9 @@ on:
         description: Publish only after all ISO tests pass
         type: boolean
         default: true
+defaults:
+  run:
+    shell: bash
 permissions:
   contents: read
 concurrency:
@@ -31,6 +34,9 @@ jobs:
             accept-flake-config = false
       - name: Source and installer guard tests
         run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck -s bash scripts/install.sh
           python3 scripts/check.py
           python3 -m unittest discover -s tests -v
       - name: Evaluate pinned live, BIOS and UEFI systems
