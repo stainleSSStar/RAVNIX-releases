@@ -67,6 +67,7 @@ class Console:
         self.connection.sendall(text.replace('\n', '\r').encode())
 
     def run(self, body, marker, timeout=900):
+        print('CHECK:', marker, flush=True)
         script = 'set -Eeuo pipefail; trap \'printf "\\nRAVNIX_VM_FAIL\\n"\' ERR; ' + body
         script += '; printf "\\n' + marker + '\\n"'
         self.send('bash -c ' + shlex.quote(script) + '\n')
@@ -100,6 +101,7 @@ class VM:
         self.process = self.connection = self.console = None
 
     def __enter__(self):
+        print('BOOT:', self.name, flush=True)
         try:
             with (self.out/f'{self.name}-qemu.log').open('wb') as log:
                 self.process = subprocess.Popen(self.command, stdout=log, stderr=subprocess.STDOUT)
@@ -192,11 +194,13 @@ def test_mode(iso, mode, out):
             quiet_bash(console,live=True)
             # The live user's login shell remains Fish even when the test runs Bash as root.
             console.run(HEALTH.replace('$USER','ravnix')+'\ncommand -v ravnix-install; command -v ravnix-guide; test -f /etc/ravnix/live; sudo -u ravnix sudo -n true; nm-online -q --timeout=90', 'RAVNIX_LIVE_OK')
-            console.send('ravnix-install\n')
+            print('INSTALL:', mode, flush=True)
+            console.send("ravnix-install || printf '\\nRAVNIX_VM_FAIL\\n'\n")
             device='/dev/sda' if mode=='bios' else '/dev/nvme0n1'
             for prompt,answer in [('Target whole disk:',device),('Hostname:','ravnix-test'),('Username:','tester'),('Timezone [Europe/Warsaw]:','Europe/Warsaw'),(f'Type ERASE {device} to continue:',f'ERASE {device}')]:
                 console.expect(prompt.encode(),timeout=120)
                 console.send(answer+'\n')
+            print('WAIT: installation and password prompt', mode, flush=True)
             console.expect(b'New password:',timeout=2400)
             console.send(PASSWORD+'\n')
             console.expect(b'Retype new password:',timeout=60)
