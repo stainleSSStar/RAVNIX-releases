@@ -59,7 +59,7 @@
   # No automatic updates or garbage collection: retain rollback generations.
   nix.gc.automatic = false;
   system.autoUpgrade.enable = false;
-  boot.loader.timeout = 5;
+  boot.loader.timeout = lib.mkDefault 5;
   environment.etc."issue".text = ''
     RAVNIX — minimal NixOS console system
     Network: nmtui / nmcli    Shell: Fish
