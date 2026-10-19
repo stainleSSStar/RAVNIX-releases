@@ -4,6 +4,8 @@ Public downloads for **RAVNIX**, a minimal x86_64 NixOS 26.05 console distributi
 
 **[Download tested releases](https://github.com/stainleSSStar/RAVNIX-releases/releases)**
 
+**Poradnik po polsku: [instalowanie programów i ręczne dodanie pulpitu XFCE](docs/PROGRAMY-I-PULPIT-PL.md).**
+
 Fish, Ethernet/Wi-Fi networking, essential firmware, BIOS/UEFI boot and a text
 installer. No graphical stack, desktop, browser, audio server or SSH server.
 The build/source repository is maintained separately and remains private.
