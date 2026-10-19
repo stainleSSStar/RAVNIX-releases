@@ -116,7 +116,7 @@ main() {
 { ... }: {
   networking.hostName = "$hostname";
   time.timeZone = "$timezone";
-  users.users.$username = {
+  users.users."$username" = {
     isNormalUser = true;
     extraGroups = [ "wheel" "networkmanager" ];
   };

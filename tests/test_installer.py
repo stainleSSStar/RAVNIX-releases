@@ -1,6 +1,11 @@
 """Exercise destructive-operation guards without accessing real disks."""
 from pathlib import Path
 import subprocess
+import json
+import re
+import shlex
+import shutil
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,3 +54,35 @@ class InstallerGuards(unittest.TestCase):
         self.assertLess(source.index('[[ $answer == "ERASE $disk" ]]'),source.index('parted -s "$disk" mklabel'))
         self.assertLess(source.index('[[ $identity == "$current" ]]'),source.index('parted -s "$disk" mklabel'))
         self.assertLess(source.index('nixos-enter --root /mnt --command "passwd $username"'),source.index('\n unmount_target\n'))
+
+    @unittest.skipUnless(shutil.which('nix-instantiate'), 'Nix evaluator runs in Linux CI')
+    def test_generated_host_evaluates_with_keyword_usernames(self):
+        source=(ROOT/'scripts/install.sh').read_text()
+        template=re.search(r'cat > /mnt/etc/nixos/host\.nix <<HOST\n(.*?)\nHOST',
+                           source, re.S).group(1)
+        names=['operator', 'if', 'then', 'else', 'assert', 'with', 'let', 'in',
+               'rec', 'inherit', 'or', 'alice-bob']
+        with tempfile.TemporaryDirectory(prefix='ravnix-config-') as temporary:
+            host=Path(temporary)/'host.nix'
+            for mode in ['bios', 'uefi']:
+                for name in names:
+                    with self.subTest(mode=mode, username=name):
+                        generated=self.shell(
+                            'getent() { return 2; }; validate_username '+shlex.quote(name)+'\n'
+                            'hostname=ravnix-test; timezone=Europe/Warsaw; '
+                            'bootdevice=/dev/disk/by-id/test; mode='+mode+'; '
+                            'username='+shlex.quote(name)+'\ncat <<HOST\n'+template+'\nHOST\n')
+                        self.assertEqual(generated.returncode, 0, generated.stderr)
+                        host.write_text(generated.stdout)
+                        expression='import (builtins.toPath '+json.dumps(str(host))+') {}'
+                        evaluated=subprocess.run(
+                            ['nix-instantiate', '--eval', '--strict', '--json', '--expr', expression],
+                            capture_output=True, text=True)
+                        self.assertEqual(evaluated.returncode, 0, evaluated.stderr)
+                        config=json.loads(evaluated.stdout)
+                        self.assertEqual(list(config['users']['users']), [name])
+                        self.assertTrue(config['users']['users'][name]['isNormalUser'])
+                        self.assertEqual(config['networking']['hostName'], 'ravnix-test')
+                        grub=config['boot']['loader']['grub']
+                        self.assertEqual(grub['efiSupport'], mode=='uefi')
+                        self.assertEqual(grub['device'], 'nodev' if mode=='uefi' else '/dev/disk/by-id/test')

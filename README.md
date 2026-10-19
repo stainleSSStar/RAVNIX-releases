@@ -4,6 +4,7 @@ Minimal **x86_64 NixOS 26.05 console distribution**, following RAVNUX's small
 base/live-only installer/tested-release approach. **TTY only: no graphical stack.**
 
 - Fish and NetworkManager for Ethernet/Wi-Fi, essential firmware and CPU microcode.
+- Offline Nano editor and basic PCI/USB, network and disk diagnostic tools.
 - Explicit minimal NixOS configuration with a pinned Nixpkgs revision and lockfile.
 - Text installer for a dedicated whole disk: BIOS/GPT or UEFI/GPT, ext4 and GRUB.
 - Real ISO and installation tests in both firmware modes before release publication.

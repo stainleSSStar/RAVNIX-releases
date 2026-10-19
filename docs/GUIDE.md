@@ -74,8 +74,13 @@ a reviewed change of the Nixpkgs input followed by a rebuild. `system.stateVersi
 is a compatibility setting; do not change it just to update packages.
 
 Add optional tools declaratively to `environment.systemPackages` when needed.
-For a temporary editor: `nix shell nixpkgs#nano --command nano`.
-No editor or development environment is preinstalled in the target system.
+Nano is installed for offline editing: `sudo nano /etc/nixos/host.nix`.
+`less`, `curl`, `lspci`, `lsusb`, `ethtool` and `smartctl` are also included.
+Use `ip address`, `nmcli device status`, `journalctl -b` and `dmesg` to inspect
+networking and driver/firmware messages. Kernel drivers, redistributable firmware
+and Intel/AMD microcode cover common PC hardware; proprietary-only or unusual
+hardware may need additional configuration. No driver collection can guarantee
+every device. No development environment is preinstalled.
 
 ## Verification limits
 

@@ -45,6 +45,12 @@
   users.mutableUsers = true;
   security.sudo = { enable = true; wheelNeedsPassword = true; };
   environment.defaultPackages = [ ];
+  # Offline configuration editing and basic network/storage diagnosis on both
+  # the live medium and installed system; no desktop dependencies.
+  environment.systemPackages = with pkgs; [
+    nano less curl pciutils usbutils ethtool smartmontools
+  ];
+  environment.variables.EDITOR = "nano";
   # Keep rebuild/rollback, but leave installation tools on the ISO only.
   system.tools = {
     nixos-build-vms.enable = false;

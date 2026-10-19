@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test the actual release ISO and text installer on disposable QEMU disks only."""
 import argparse
+import base64
 import re
 from pathlib import Path
 import shlex
@@ -68,10 +69,24 @@ class Console:
 
     def run(self, body, marker, timeout=900):
         print('CHECK:', marker, flush=True)
-        script = 'set -Eeuo pipefail; trap \'printf "\\nRAVNIX_VM_FAIL\\n"\' ERR; ' + body
-        script += '; printf "\\n' + marker + '\\n"'
-        self.send('bash -c ' + shlex.quote(script) + '\n')
+        self.send(probe_command(body, marker) + '\n')
         self.expect(('\r\n'+marker+'\r\n').encode(), timeout)
+
+
+def probe_script(body, marker):
+    # A newline is valid after both a command and a trailing comment; a leading
+    # semicolon on the following line is a Bash syntax error.
+    return ('set -Eeuo pipefail\n'
+            'trap \'printf "\\nRAVNIX_VM_FAIL\\n"\' ERR\n'
+            + body.rstrip() + '\nprintf "\\n' + marker + '\\n"\n')
+
+
+def probe_command(body, marker):
+    # Send one terminal line, avoiding readline continuation prompts. The outer
+    # check also catches parse errors, which cannot trigger the script's ERR trap.
+    encoded = base64.b64encode(probe_script(body, marker).encode()).decode('ascii')
+    return ('bash -c "$(printf %s ' + shlex.quote(encoded) + ' | base64 -d)"'
+            ' || printf "\\nRAVNIX_VM_FAIL\\n"')
 
 HEALTH = '''
 for attempt in {1..90}; do
@@ -84,6 +99,7 @@ source /etc/os-release
 test "$ID" = ravnix
 test "$ID_LIKE" = nixos
 case "$(getent passwd "$USER" | cut -d: -f7)" in */fish) ;; *) false;; esac
+for command in nano less curl lspci lsusb ethtool smartctl; do command -v "$command"; done
 for command in Xorg Xwayland xfce4-session startx; do
  if command -v "$command"; then false; fi
 done
@@ -167,13 +183,25 @@ def command(directory, mode, disk, iso=None):
 
 
 def poweroff(console):
-    console.send('sync; poweroff\n')
-    try:
-        code = console.process.wait(timeout=120)
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError('Guest did not power off cleanly') from exc
-    if code != 0:
-        raise RuntimeError(f'QEMU exited with {code}')
+    # Keep consuming serial output: a full socket can block the guest during
+    # shutdown, so waiting only on QEMU can deadlock an otherwise healthy VM.
+    console.send('sync; systemctl poweroff\n')
+    deadline = time.monotonic() + 180
+    while console.process.poll() is None:
+        if time.monotonic() > deadline:
+            raise RuntimeError('Guest did not power off cleanly')
+        try:
+            chunk = console.connection.recv(65536)
+        except socket.timeout:
+            continue
+        if chunk:
+            console.data.extend(chunk)
+            print(chunk.decode('utf-8', 'replace'), end='', flush=True)
+        else:
+            # Serial EOF may precede process exit by a few milliseconds.
+            time.sleep(.1)
+    if console.process.returncode != 0:
+        raise RuntimeError(f'QEMU exited with {console.process.returncode}')
 
 
 def quiet_bash(console, live=False):
