@@ -58,6 +58,9 @@ main() {
  entries=$(find /mnt -mindepth 1 -maxdepth 1 -print -quit) || fail 'Cannot inspect /mnt.'
  [[ -z $entries ]] || fail '/mnt must be empty.'
  curl -fsSI --max-time 20 https://cache.nixos.org/nix-cache-info >/dev/null || fail 'Nix cache HTTPS unavailable; configure networking with nmtui first.'
+ # The pinned Nixpkgs source is fetched from github.com during flake evaluation;
+ # verify both hosts before anything destructive happens.
+ curl -fsSI --max-time 20 https://github.com/ >/dev/null || fail 'github.com unreachable; the pinned Nixpkgs source cannot be fetched. Configure networking with nmtui first.'
  [[ ! -d /sys/firmware/efi ]] || mode=uefi
  echo "RAVNIX text installer — detected boot mode: $mode"
  lsblk -d -o NAME,SIZE,MODEL,TRAN,RO
