@@ -1,0 +1,7 @@
+/result*
+/out/
+/.direnv/
+__pycache__/
+*.pyc
+/host.nix
+/hardware-configuration.nix

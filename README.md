@@ -8,7 +8,7 @@ Public downloads for **RAVNIX**, a minimal x86_64 NixOS 26.05 console distributi
 
 Fish, Ethernet/Wi-Fi networking, essential firmware, BIOS/UEFI boot and a text
 installer. No graphical stack, desktop, browser, audio server or SSH server.
-The build/source repository is maintained separately and remains private.
+This repository also mirrors the build sources, so every release can be rebuilt and verified from the exact published tree.
 
 Each release includes the ISO, `SHA256SUMS`, guide, exact source/Nixpkgs revisions,
 lockfile, closure manifest and real VM test logs. A release is published only

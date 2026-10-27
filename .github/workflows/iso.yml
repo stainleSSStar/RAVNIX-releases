@@ -1,0 +1,115 @@
+name: Build RAVNIX ISO
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_iso:
+        description: Build the console ISO and run BIOS/UEFI installation tests
+        type: boolean
+        default: true
+      stage_release:
+        description: Stage a private draft only after all ISO tests pass
+        type: boolean
+        default: true
+defaults:
+  run:
+    shell: bash
+permissions:
+  contents: read
+concurrency:
+  group: ravnix-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+      - name: Source and installer guard tests
+        run: |
+          # azure.archive.ubuntu.com intermittently hangs from GH runners; pin the
+          # primary mirror and retry transient connection failures.
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          sudo apt-get update $APT_OPTS
+          sudo apt-get install -y $APT_OPTS shellcheck
+          shellcheck -s bash scripts/install.sh
+          python3 scripts/check.py
+          python3 -m unittest discover -s tests -v
+      - name: Evaluate pinned live, BIOS and UEFI systems
+        run: |
+          nix flake lock
+          git add flake.lock
+          echo RAVNIX_LOCK_BEGIN
+          cat flake.lock
+          echo RAVNIX_LOCK_END
+          nix flake check --no-build --show-trace
+  iso:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && inputs.build_iso
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            max-jobs = 2
+      - name: Build pinned console ISO
+        run: |
+          mkdir out
+          nix flake lock
+          git add flake.lock
+          nix build .#iso -L 2>&1 | tee out/build.log
+          cp result/iso/*.iso out/
+          cp flake.lock out/flake.lock
+          cp docs/GUIDE.md out/GUIDE.md
+          nix path-info --recursive .#nixosConfigurations.live.config.system.build.toplevel > out/live-store-paths.txt
+          nix path-info --closure-size .#nixosConfigurations.live.config.system.build.toplevel > out/closure-size.txt
+          printf 'Source: %s\nNixpkgs: %s\n' "$GITHUB_SHA" "$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock)" > out/build-info.txt
+          (cd out && sha256sum *.iso > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - name: Test BIOS live ISO, installation, login, rebuild and reboot
+        run: |
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          sudo apt-get update $APT_OPTS
+          sudo apt-get install -y $APT_OPTS qemu-system-x86 ovmf
+          python3 scripts/vm-test.py out/*.iso --mode bios 2>&1 | tee out/vm-bios-tests.log
+      - name: Test UEFI live ISO, installation, login, rebuild and reboot
+        run: |
+          python3 scripts/vm-test.py out/*.iso --mode uefi 2>&1 | tee out/vm-uefi-tests.log
+      - name: Record full firmware validation
+        run: |
+          printf '%s\n' 'PASS: BIOS and UEFI live, text installation, password login, rebuild and reboot.' 'Physical hardware, Secure Boot, dual boot and encryption are not tested.' > out/VM-TESTS.txt
+      - name: Stage complete tested release (private draft)
+        if: success() && inputs.stage_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          isos=(out/*.iso)
+          [[ ${#isos[@]} == 1 && -s ${isos[0]} ]]
+          (cd out && sha256sum -c SHA256SUMS)
+          grep -qx 'PASS: BIOS and UEFI live, text installation, password login, rebuild and reboot.' out/VM-TESTS.txt
+          tag="v26.05-r${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" --draft --latest=false --title "RAVNIX 26.05 TTY (build ${GITHUB_RUN_NUMBER})" --notes "Minimal console-only NixOS derivative. Source: ${GITHUB_SHA}. BIOS and UEFI live, actual text installation, password-required sudo, rebuild and reboot tests passed. No graphical stack. See GUIDE.md, SHA256SUMS and VM logs. Physical hardware and Secure Boot are not covered."
+          for asset in out/*; do
+            [[ -s $asset ]] || continue
+            gh release upload "$tag" "$asset"
+          done
+          echo "Tested files staged as private draft $tag. Publish with scripts/publish-release.sh $tag."
