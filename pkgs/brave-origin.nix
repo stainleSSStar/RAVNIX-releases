@@ -28,9 +28,6 @@
 , fontconfig
 , freetype
 , gdk-pixbuf
-, glib
-, gtk3
-, gtk4
 , libdrm
 , libGL
 , libxkbcommon
