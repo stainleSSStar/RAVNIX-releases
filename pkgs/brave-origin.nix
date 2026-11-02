@@ -12,7 +12,11 @@
 , dpkg
 , patchelf
 , xdg-utils
-, makeWrapper
+, glib
+, gsettings-desktop-schemas
+, gtk3
+, gtk4
+, adwaita-icon-theme
 , alsa-lib
 , at-spi2-atk
 , at-spi2-core
@@ -125,7 +129,6 @@ stdenv.mkDerivation {
   nativeBuildInputs = [
     dpkg
     patchelf
-    makeWrapper
   ];
   buildInputs = [
     glib
