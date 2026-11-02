@@ -38,5 +38,7 @@ if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
 fi
 
 if [ -f "$wallpaper" ] && command -v plasma-apply-wallpaperimage >/dev/null 2>&1; then
-	plasma-apply-wallpaperimage "$wallpaper" --fill-mode preserveAspectRatio >/dev/null 2>&1 || true
+	# preserveAspectFit keeps the artwork whole; the other accepted values are
+	# stretch, preserveAspectCrop and pad.
+	plasma-apply-wallpaperimage "$wallpaper" --fill-mode preserveAspectFit >/dev/null 2>&1 || true
 fi

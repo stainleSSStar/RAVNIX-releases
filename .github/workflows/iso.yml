@@ -67,19 +67,41 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = false
             max-jobs = 4
+      - name: Free runner disk space
+        run: |
+          # The desktop closure and the ISO builder together need more room
+          # than the runner has with its preinstalled toolchains in place.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /usr/lib/jvm /usr/local/graalvm /usr/local/share/powershell \
+            /usr/share/azure-cli /opt/hostedtoolcache/CodeQL \
+            /usr/lib/llvm-14 /usr/lib/llvm-15 /usr/lib/llvm-16 /usr/lib/llvm-17
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get clean
+          df -h /
       - name: Build pinned desktop ISO
         run: |
           mkdir out
-          nix flake lock
-          git add flake.lock
+          # Fetch and build the whole closure first, then drop the downloaded
+          # sources: the ISO builder needs the disk space more than the
+          # compressed archives do.
+          nix build .#nixosConfigurations.live.config.system.build.toplevel --no-link
+          rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/nix/tarballs"
+          df -h /
           nix build .#iso -L 2>&1 | tee out/build.log
-          cp result/iso/*.iso out/
+          df -h /
+          # A hard link avoids holding a second copy of the multi-gigabyte image.
+          ln result/iso/*.iso out/ 2>/dev/null || cp result/iso/*.iso out/
           cp flake.lock out/flake.lock
           cp docs/GUIDE.md out/GUIDE.md
           nix path-info --recursive .#nixosConfigurations.live.config.system.build.toplevel > out/live-store-paths.txt
           nix path-info --closure-size .#nixosConfigurations.live.config.system.build.toplevel > out/closure-size.txt
           printf 'Source: %s\nNixpkgs: %s\n' "$GITHUB_SHA" "$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock)" > out/build-info.txt
           (cd out && sha256sum *.iso > SHA256SUMS && sha256sum -c SHA256SUMS)
+          # The ISO does not reference the closure it contains, so the store can
+          # be trimmed again to leave room for the virtual machine disks.
+          nix store gc || true
+          df -h /
       - name: Test BIOS live ISO, installation, login, rebuild and reboot
         run: |
           sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
