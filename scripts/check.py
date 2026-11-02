@@ -36,8 +36,9 @@ assert 'xdg.autostart.enable = true;' in desktop
 assert 'xdg.icons.enable = true;' in desktop
 assert 'xdg.mime.enable = true;' in desktop
 assert 'hardware.graphics.enable32Bit = true;' in desktop
-assert 'hardware.video.vaapi.enable = true;' in desktop
+assert 'hardware.graphics.extraPackages' in desktop
 assert 'hardware.bluetooth.enable = true;' in desktop
+assert 'programs.partition-manager.enable = true;' in desktop
 for package in ('mc', 'btop', 'fastfetch', 'calamares-nixos', 'braveOrigin'):
     assert package in desktop, package
 assert '../pkgs/brave-origin.nix' in desktop

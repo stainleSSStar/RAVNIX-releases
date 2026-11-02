@@ -44,6 +44,9 @@
   users.users.root.hashedPassword = "!";
   users.mutableUsers = true;
   security.sudo = { enable = true; wheelNeedsPassword = true; };
+  # The desktop needs a policy agent for mounting disks and other actions
+  # that ask for authorisation.
+  security.polkit.enable = true;
   environment.defaultPackages = [ ];
   # Offline configuration editing and basic network/storage diagnosis on both
   # the live medium and the installed system.

@@ -50,6 +50,16 @@ in {
     user = "ravnix";
   };
   security.sudo.wheelNeedsPassword = lib.mkForce false;
+  # The graphical installer runs privileged actions through pkexec. On the
+  # live medium the wheel group is trusted without a password, exactly like
+  # the upstream NixOS graphical installation CD.
+  security.polkit.extraConfig = ''
+    polkit.addRule(function(action, subject) {
+      if (subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+      }
+    });
+  '';
   system.tools = {
     nixos-enter.enable = true;
     nixos-generate-config.enable = true;

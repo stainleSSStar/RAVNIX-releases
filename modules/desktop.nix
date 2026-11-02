@@ -42,6 +42,10 @@ in
   services.displayManager.sddm.enable = true;
   services.displayManager.sddm.wayland.enable = true;
   services.displayManager.sddm.theme = "${branding}/share/sddm/themes/ravnix";
+  services.displayManager.defaultSession = "plasma";
+
+  # kpmcore, the partition library the graphical installer relies on.
+  programs.partition-manager.enable = true;
 
   # The minimal profile switches desktop integration off. A desktop needs
   # desktop icons, MIME associations, the portal and sound themes.
@@ -65,8 +69,12 @@ in
   # applications, VA-API for hardware video, Bluetooth for peripherals.
   hardware.graphics.enable = true;
   hardware.graphics.enable32Bit = true;
-  hardware.video.vaapi.enable = true;
-  hardware.video.vaapi.driSupport = true;
+  # VA-API drivers: Intel media engine and the VDPAU bridge for NVIDIA.
+  # AMD and other GPUs get their VA driver from Mesa itself.
+  hardware.graphics.extraPackages = with pkgs; [
+    intel-media-driver
+    libvdpau-va-gl
+  ];
   hardware.bluetooth.enable = true;
 
   # --- Applications --------------------------------------------------------
