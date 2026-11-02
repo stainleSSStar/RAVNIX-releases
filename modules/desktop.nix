@@ -37,6 +37,10 @@ in
   services.desktopManager.plasma6.enable = true;
   services.xserver.enable = true;
 
+  # The stock wallpapers add over 100 MiB to the closure; RAVNIX ships its
+  # own wallpaper instead.
+  environment.plasma6.excludePackages = [ kde.plasma-workspace-wallpapers ];
+
   # The greeter uses the RAVNIX theme, so the wallpaper and the purple
   # appearance are already there before anyone logs in.
   services.displayManager.sddm.enable = true;
