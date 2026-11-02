@@ -119,6 +119,10 @@ in
   environment.etc."skel/.config/kdeglobals".source = ../assets/kdeglobals;
   environment.etc."skel/.config/konsolerc".source = ../assets/konsolerc;
   environment.etc."skel/.local/share/konsole/RAVNIX.profile".source = ../assets/RAVNIX.profile;
+  # The colour schemes also live in the user profile, where KDE always looks
+  # for them, whatever the session data directories happen to be.
+  environment.etc."skel/.local/share/color-schemes/RAVNIX-PurpleNeon.colorscheme".source = ../assets/RAVNIX-PurpleNeon.colorscheme;
+  environment.etc."skel/.local/share/konsole/RAVNIX.colorscheme".source = ../assets/RAVNIX.colorscheme;
   environment.etc."skel/.config/fastfetch/config.jsonc".source = ../assets/fastfetch.jsonc;
   environment.etc."skel/.config/btop/btop.conf".source = ../assets/btop.conf;
   environment.etc."skel/.config/btop/themes/ravnix.theme".source = ../assets/btop-ravnix.theme;
