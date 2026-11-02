@@ -100,12 +100,13 @@ test "$ID" = ravnix
 test "$ID_LIKE" = nixos
 case "$(getent passwd "$USER" | cut -d: -f7)" in */fish) ;; *) false;; esac
 for command in nano less curl lspci lsusb ethtool smartctl; do command -v "$command"; done
-# Desktop stack: Plasma, the graphical network manager, the browser and the
-# everyday console tools.
+# Desktop stack: Plasma, the everyday console tools and the applications.
 for command in plasmashell kwin_wayland kwin_x11 startplasma-wayland konsole kate dolphin \
-                plasma-nm btop fastfetch mc brave-origin calamares; do
+                btop fastfetch mc brave-origin calamares; do
  command -v "$command"
 done
+# The graphical network manager is a Plasma applet, not a command.
+test -d /run/current-system/sw/share/plasma/plasmoids/org.kde.plasma.networkmanagement
 systemctl is-active display-manager || systemctl is-active sddm
 test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg
 test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
