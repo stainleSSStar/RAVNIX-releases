@@ -14,7 +14,7 @@
 , buildPackages
 , fetchurl
 , dpkg
-, tar
+, gnutar
 , patchelf
 , xdg-utils
 , coreutils
@@ -134,7 +134,7 @@ stdenv.mkDerivation {
 
   nativeBuildInputs = [
     dpkg
-    tar
+    gnutar
     patchelf
     # Same wrapper nixpkgs' `brave` uses: it supplies the GSettings schema
     # directory, the gdk-pixbuf loader cache, the dconf GIO module and the
@@ -161,7 +161,7 @@ stdenv.mkDerivation {
     # the file tree with plain tar instead, exactly like the dpkg setup hook
     # in nixpkgs does.
     mkdir root
-    dpkg-deb --fsys-tarfile "$src" | tar --extract --directory=root
+    dpkg-deb --fsys-tarfile "$src" | ${gnutar}/bin/tar --extract --directory=root
     runHook postUnpack
   '';
 
