@@ -111,6 +111,9 @@ test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg
 test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
 test -f /run/current-system/sw/share/sddm/themes/ravnix/Main.qml
 test -f /run/current-system/sw/share/ravnix/fastfetch-logo.txt
+# The fastfetch branding has to point at a file that really exists.
+fastfetch_logo=$(grep '"source"' /etc/skel/.config/fastfetch/config.jsonc | head -1 | cut -d '"' -f 4)
+test -f "$fastfetch_logo"
 if systemctl is-active --quiet sshd; then false; fi
 if ss -H -lnt | awk '{print $4}' | grep -Eq ':(22|6000)$'; then false; fi
 timeout 90 systemctl is-system-running --wait || true
@@ -265,6 +268,8 @@ for command in ravnix-install ravnix-guide nixos-install; do if command -v "$com
 test ! -e /etc/ravnix/live
 test -w /etc/nixos/host.nix || test -r /etc/nixos/host.nix
 if sudo -n true; then false; fi
+# The user's own fastfetch branding has to be in place as well.
+test -f "$HOME/.config/fastfetch/config.jsonc"
 # The browser has to start as an ordinary user, not only exist on disk.
 timeout 180 brave-origin --version >/tmp/ravnix-brave-version.txt 2>&1 || true
 sleep 3

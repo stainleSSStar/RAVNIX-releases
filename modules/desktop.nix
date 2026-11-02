@@ -31,6 +31,15 @@ let
   '';
 
   brandingScript = pkgs.writeShellScriptBin "ravnix-branding" (builtins.readFile ../assets/ravnix-branding.sh);
+
+  # The fastfetch logo lives in the Nix store, so the configuration is
+  # generated with the real store path instead of a hard-coded one.
+  fastfetchConfig = pkgs.writeText "ravnix-fastfetch.jsonc" (
+    builtins.replaceStrings
+      [ "@LOGO@" ]
+      [ "${branding}/share/ravnix/fastfetch-logo.txt" ]
+      (builtins.readFile ../assets/fastfetch.jsonc)
+  );
 in
 {
   # --- Plasma 6 ------------------------------------------------------------
@@ -123,11 +132,11 @@ in
   # for them, whatever the session data directories happen to be.
   environment.etc."skel/.local/share/color-schemes/RAVNIX-PurpleNeon.colorscheme".source = ../assets/RAVNIX-PurpleNeon.colorscheme;
   environment.etc."skel/.local/share/konsole/RAVNIX.colorscheme".source = ../assets/RAVNIX.colorscheme;
-  environment.etc."skel/.config/fastfetch/config.jsonc".source = ../assets/fastfetch.jsonc;
+  environment.etc."skel/.config/fastfetch/config.jsonc".source = fastfetchConfig;
   environment.etc."skel/.config/btop/btop.conf".source = ../assets/btop.conf;
   environment.etc."skel/.config/btop/themes/ravnix.theme".source = ../assets/btop-ravnix.theme;
   # Root gets the same fastfetch branding.
-  environment.etc."root/.config/fastfetch/config.jsonc".source = ../assets/fastfetch.jsonc;
+  environment.etc."root/.config/fastfetch/config.jsonc".source = fastfetchConfig;
 
   # --- Applying the theme --------------------------------------------------
   # The wallpaper and the colour scheme are applied once the Plasma shell is

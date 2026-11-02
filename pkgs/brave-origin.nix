@@ -35,6 +35,7 @@
 , freetype
 , gdk-pixbuf
 , libdrm
+, libx11
 , libGL
 , libxkbcommon
 , libxscrnsaver
@@ -90,6 +91,7 @@ let
     gtk3
     gtk4
     libdrm
+    libx11
     libGL
     libxkbcommon
     libxscrnsaver
