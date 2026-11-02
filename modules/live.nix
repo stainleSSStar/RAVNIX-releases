@@ -10,7 +10,12 @@ let
     exec ${pkgs.coreutils}/bin/cat ${../docs/GUIDE.md}
   '';
 in {
-  imports = [ "${modulesPath}/installer/cd-dvd/iso-image.nix" ];
+  imports = [
+    "${modulesPath}/installer/cd-dvd/iso-image.nix"
+    # Bundle the NixOS/Nixpkgs channel so the standard graphical installer,
+    # which writes a channel-style configuration, can install offline.
+    "${modulesPath}/installer/cd-dvd/channel.nix"
+  ];
   # The bare ISO module only includes its own squashfs/ISO/tmpfs mounts.
   # Include exactly the filesystems our text installer creates.
   boot.supportedFilesystems = [ "ext4" "vfat" ];

@@ -8,6 +8,7 @@
 # both for a new release.
 { lib
 , stdenv
+, fetchurl
 , dpkg
 , patchelf
 , xdg-utils
