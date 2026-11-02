@@ -56,11 +56,15 @@ in
   xdg.portal.enable = true;
 
   # --- Sound ---------------------------------------------------------------
+  # PipeWire as the sound server, with the ALSA and PulseAudio compatibility
+  # layers so ordinary applications keep working.
   services.pipewire.enable = true;
+  services.pipewire.audio.enable = true;
+  services.pipewire.alsa.enable = true;
   services.pipewire.pulse.enable = true;
 
   # --- Power, printing, firmware ------------------------------------------
-  services.powerManagement.enable = true;
+  powerManagement.enable = true;
   services.printing.enable = true;
   services.fwupd.enable = true;
 
