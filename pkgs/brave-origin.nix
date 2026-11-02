@@ -6,12 +6,18 @@
 #   https://brave-browser-apt-release.s3.brave.com/pool/main/b/brave-origin/
 # Bump `version` and `hash` together; scripts/update-brave-origin.sh prints
 # both for a new release.
+#
+# The layout mirrors nixpkgs' own `brave` package (pkgs/by-name/br/brave),
+# which repackages the same way.
 { lib
 , stdenv
+, buildPackages
 , fetchurl
 , dpkg
+, tar
 , patchelf
 , xdg-utils
+, coreutils
 , glib
 , gsettings-desktop-schemas
 , gtk3
@@ -61,6 +67,7 @@
 
 let
   inherit (lib)
+    makeBinPath
     makeLibraryPath
     makeSearchPathOutput
     ;
@@ -109,10 +116,12 @@ let
     snappy
     libkrb5
     qt6.qtbase
-  ]
-  ++ [ libpulseaudio libva ];
+    libpulseaudio
+    libva
+  ];
 
   rpath = makeLibraryPath deps + ":" + makeSearchPathOutput "lib" "lib64" deps;
+  binpath = makeBinPath deps;
 in
 stdenv.mkDerivation {
   pname = "brave-origin";
@@ -127,6 +136,10 @@ stdenv.mkDerivation {
     dpkg
     tar
     patchelf
+    # Same wrapper nixpkgs' `brave` uses: it supplies the GSettings schema
+    # directory, the gdk-pixbuf loader cache, the dconf GIO module and the
+    # icon theme at runtime.
+    (buildPackages.wrapGAppsHook3.override { makeWrapper = buildPackages.makeShellWrapper; })
   ];
   buildInputs = [
     glib
@@ -139,6 +152,7 @@ stdenv.mkDerivation {
   dontConfigure = true;
   dontBuild = true;
   dontPatchELF = true;
+  doInstallCheck = true;
 
   unpackPhase = ''
     runHook preUnpack
@@ -167,6 +181,13 @@ stdenv.mkDerivation {
 
     ln -sf "$BINARYWRAPPER" "$out/bin/brave-origin"
 
+    # The setuid sandbox helper cannot work from the Nix store: the store is
+    # read-only and the helper would have to be owned by root with mode 4755.
+    # Chromium refuses to start when it finds a helper that is present but not
+    # configured that way, so drop it and let the browser fall back to the
+    # unprivileged user-namespace sandbox, which NixOS allows by default.
+    rm -f "$out/opt/brave.com/brave-origin/chrome-sandbox"
+
     for exe in "$out/opt/brave.com/brave-origin/brave" \
                 "$out/opt/brave.com/brave-origin/chrome_crashpad_handler"; do
       patchelf \
@@ -176,13 +197,16 @@ stdenv.mkDerivation {
 
     for desktop in "$out/share/applications/brave-origin.desktop" \
                    "$out/share/applications/com.brave.Origin.desktop"; do
+      # Only the launcher path is referenced by the .desktop files; there is no
+      # /opt/brave.com entry to rewrite in them.
       substituteInPlace "$desktop" \
-        --replace-fail /usr/bin/brave-origin-stable "$out/bin/brave-origin" \
-        --replace-fail /opt/brave.com "$out/opt/brave.com"
+        --replace-fail /usr/bin/brave-origin-stable "$out/bin/brave-origin"
     done
 
+    # The default browser chooser points at the wrapper as well, so the browser
+    # still starts with its runtime environment.
     substituteInPlace "$out/opt/brave.com/brave-origin/default-app-block" \
-      --replace-fail /opt/brave.com "$out/opt/brave.com"
+      --replace-fail /opt/brave.com/brave-origin/brave-origin "$out/bin/brave-origin"
 
     icon_sizes=( "16" "24" "32" "48" "64" "128" "256" )
     for icon in ''${icon_sizes[*]}; do
@@ -195,6 +219,24 @@ stdenv.mkDerivation {
     ln -sf ${xdg-utils}/bin/xdg-mime "$out/opt/brave.com/brave-origin/xdg-mime"
 
     runHook postInstall
+  '';
+
+  preFixup = ''
+    gappsWrapperArgs+=(
+      --prefix LD_LIBRARY_PATH : ${rpath}
+      --prefix PATH : ${binpath}
+      --suffix PATH : ${makeBinPath [ xdg-utils coreutils ]}
+      --set CHROME_WRAPPER brave-origin
+      --add-flags "--disable-features=OutdatedBuildDetector"
+      --add-flags "--disable-setuid-sandbox"
+      --add-flags "--ozone-platform-hint=auto"
+      --add-flags "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoEncoder"
+    )
+  '';
+
+  installCheckPhase = ''
+    # Bypass the upstream launcher, which swallows the exit status.
+    timeout 300 "$out/opt/brave.com/brave-origin/brave" --version
   '';
 
   meta = {

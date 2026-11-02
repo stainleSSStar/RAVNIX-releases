@@ -265,6 +265,10 @@ for command in ravnix-install ravnix-guide nixos-install; do if command -v "$com
 test ! -e /etc/ravnix/live
 test -w /etc/nixos/host.nix || test -r /etc/nixos/host.nix
 if sudo -n true; then false; fi
+# The browser has to start as an ordinary user, not only exist on disk.
+timeout 180 brave-origin --version >/tmp/ravnix-brave-version.txt 2>&1 || true
+sleep 3
+grep -qiE 'brave|chromium' /tmp/ravnix-brave-version.txt
 ''','RAVNIX_USER_OK')
                 console.send("sudo -k; sudo -p 'RAVNIX_SUDO_PASSWORD: ' bash --noprofile --norc\n")
                 console.expect(b'RAVNIX_SUDO_PASSWORD: ',timeout=30)
