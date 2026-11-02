@@ -143,7 +143,7 @@ class VM:
                 except (FileNotFoundError, ConnectionRefusedError):
                     time.sleep(.1)
             self.connection.settimeout(1)
-            self.console = Console(self.connection, self.process, 3600)
+            self.console = Console(self.connection, self.process, 10800)
             return self.console
         except BaseException:
             self.__exit__(None, None, None)
@@ -220,7 +220,7 @@ def poweroff(console):
 
 def quiet_bash(console, live=False):
     prompt = b'ravnix@ravnix ~ > ' if live else b'tester@ravnix-test ~ > '
-    console.expect(prompt,timeout=600)
+    console.expect(prompt,timeout=1800)
     console.send(('sudo -n ' if live else 'exec ')+'bash --noprofile --norc\n')
     console.expect(b'# ' if live else b'$ ',timeout=30)
     console.send('stty -echo; printf "\\nRAVNIX_SERIAL_READY\\n"\n')
@@ -243,7 +243,7 @@ def test_mode(iso, mode, out):
                 console.expect(prompt.encode(),timeout=120)
                 console.send(answer+'\n')
             print('WAIT: installation and password prompt', mode, flush=True)
-            console.expect(b'New password:',timeout=2400)
+            console.expect(b'New password:',timeout=5400)
             console.send(PASSWORD+'\n')
             console.expect(b'Retype new password:',timeout=60)
             console.send(PASSWORD+'\n')
@@ -253,12 +253,12 @@ def test_mode(iso, mode, out):
             console.run('mount '+device+'2 /mnt' if mode=='bios' else 'mount '+device+'p2 /mnt', 'RAVNIX_TARGET_MOUNTED')
             if mode=='uefi':
                 console.run('mount /dev/nvme0n1p1 /mnt/boot/efi','RAVNIX_ESP_MOUNTED')
-            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=1200)
+            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=5400)
             poweroff(console)
         for stage in ('installed','rebuilt'):
             args,serial=command(directory,mode,disk)
             with VM(args,serial,out,f'vm-{mode}-{stage}') as console:
-                console.expect(b'login:',timeout=600)
+                console.expect(b'login:',timeout=1800)
                 console.send('tester\n')
                 console.expect(b'Password:',timeout=30)
                 console.send(PASSWORD+'\n')
@@ -282,7 +282,7 @@ grep -qiE 'brave|chromium' /tmp/ravnix-brave-version.txt
                 console.expect(b'# ',timeout=30)
                 console.run('test "$(passwd -S root | awk \'{print $2}\')" = L; visudo -cf /etc/sudoers; test -f /etc/nixos/flake.lock; test -f /etc/nixos/hardware-configuration.nix; test -f /etc/nixos/host.nix; if grep -R -E "autologin.*ravnix|NOPASSWD" /etc/sudoers /etc/sudoers.d; then false; fi; nm-online -q --timeout=90','RAVNIX_ROOT_OK')
                 if stage=='installed':
-                    console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=1200)
+                    console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=5400)
                 poweroff(console)
         print(f'PASS: {mode} live, desktop, text installation, login, rebuild, reboot',flush=True)
 

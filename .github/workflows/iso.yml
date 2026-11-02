@@ -56,7 +56,9 @@ jobs:
     needs: validate
     if: github.event_name == 'workflow_dispatch' && inputs.build_iso
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    # The desktop closure has to be copied into the virtual machine and
+    # rebuilt twice per firmware mode.
+    timeout-minutes: 360
     permissions:
       contents: write
     steps:
