@@ -1,0 +1,6 @@
+[Konsole]
+DefaultProfile=RAVNIX.profile
+
+[MainWindow]
+MenuBar=false
+ToolBar=false

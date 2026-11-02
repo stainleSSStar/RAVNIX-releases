@@ -121,7 +121,7 @@ main() {
   time.timeZone = "$timezone";
   users.users."$username" = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "networkmanager" ];
+    extraGroups = [ "wheel" "networkmanager" "video" "render" "input" "lp" "scanner" "dialout" ];
   };
   boot.loader.grub = {
     enable = true;

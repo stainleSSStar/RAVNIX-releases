@@ -1,0 +1,9 @@
+[$Version]
+update_info=kdeglobals.upd:RAVNIX
+
+[General]
+ColorScheme=RAVNIX-PurpleNeon
+
+[KDE]
+ColorScheme=RAVNIX-PurpleNeon
+lookAndFeelPackage=org.kde.breezedark.desktop

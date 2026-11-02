@@ -1,12 +1,21 @@
 # RAVNIX
 
-Minimal **x86_64 NixOS 26.05 console distribution**, following RAVNUX's small
-base/live-only installer/tested-release approach. **TTY only: no graphical stack.**
+**x86_64 NixOS 26.05 distribution with KDE Plasma 6**, following RAVNUX's small
+base/live-only installer/tested-release approach.
 
-- Fish and NetworkManager for Ethernet/Wi-Fi, essential firmware and CPU microcode.
-- Offline Nano editor and basic PCI/USB, network and disk diagnostic tools.
+- **KDE Plasma 6** desktop with the RAVNIX *Purple Neon* theme: deep violet with
+  pink and green accents, a custom 4K cyberpunk wallpaper and a branded greeter
+  that is already themed before you log in.
+- Fish as the shell, in Konsole (slightly transparent) and on every console.
+- NetworkManager with a graphical applet for Ethernet and Wi-Fi.
+- **Brave Origin** — the stripped-down Brave build that is free on Linux — plus
+  Midnight Commander, btop and fastfetch with the RAVNIX "R" logo.
+- Full redistributable firmware, CPU microcode, 32/64-bit Mesa with VA-API,
+  PipeWire audio, Bluetooth, printing and firmware updates, so the same image
+  works in a virtual machine and on real hardware.
+- Two installers: the **standard NixOS graphical installer** (Calamares) and
+  RAVNIX's own text installer, which installs the pinned RAVNIX configuration.
 - Explicit minimal NixOS configuration with a pinned Nixpkgs revision and lockfile.
-- Text installer for a dedicated whole disk: BIOS/GPT or UEFI/GPT, ext4 and GRUB.
 - Real ISO and installation tests in both firmware modes before release publication.
 - Password login/sudo, locked root, no installed autologin or SSH server.
 - NixOS configuration generations and rollback; no automatic upgrades or cleanup.
@@ -54,10 +63,25 @@ manifest, closure size, guide, lockfile and VM/build logs. Verify SHA256SUMS bef
 writing the ISO. The firmware/kernel coverage retains necessary dependencies;
 Nix store path counts are not directly comparable to Arch package counts.
 
-Install from the booted ISO with `sudo ravnix-install`. **The installer erases
-all data on the selected disk after exact confirmation.** Internet and a dedicated
-16 GiB+ disk are required. No dual boot, encryption/LVM/RAID or Secure Boot setup.
-Physical hardware still needs validation on the target machines.
+Install from the booted ISO with `sudo ravnix-install`, or use the *Install
+NixOS* desktop shortcut for the standard graphical installer. **The text
+installer erases all data on the selected disk after exact confirmation.**
+Internet and a dedicated 16 GiB+ disk are required. No dual boot,
+encryption/LVM/RAID or Secure Boot setup. Physical hardware still needs
+validation on the target machines.
+
+## Layout
+
+| Path | Purpose |
+| --- | --- |
+| `modules/base.nix` | Shared system: network, users, Fish, security policy, branding of GRUB |
+| `modules/desktop.nix` | Plasma 6, Purple Neon theme, wallpaper, greeter theme, applications, drivers |
+| `modules/live.nix` | Live medium: autologin, boot splash images, installer shortcuts |
+| `assets/` | Wallpaper, colour schemes, greeter theme, fastfetch/btop branding, boot splash |
+| `pkgs/brave-origin.nix` | Repackaging of the Brave Origin `.deb` (not in nixpkgs) |
+
+Brave Origin is pinned by version and hash. To move to a newer release, run
+`bash scripts/update-brave-origin.sh` and update `pkgs/brave-origin.nix`.
 
 The repository is a NixOS derivative, not an official NixOS release. Source code
 is MIT; Nixpkgs and included software retain their respective licenses.

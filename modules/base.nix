@@ -1,6 +1,6 @@
 { lib, pkgs, modulesPath, ... }:
 {
-  imports = [ "${modulesPath}/profiles/minimal.nix" ];
+  imports = [ "${modulesPath}/profiles/minimal.nix" ./desktop.nix ];
   system.stateVersion = "26.05";
   system.nixos = {
     distroId = "ravnix";
@@ -9,13 +9,13 @@
   };
   networking.hostName = lib.mkDefault "ravnix";
   networking.networkmanager.enable = true;
-  networking.networkmanager.plugins = lib.mkForce [ ];
   networking.modemmanager.enable = false;
   networking.firewall.enable = true;
   services.openssh.enable = false;
-  services.xserver.enable = false;
   services.timesyncd.enable = true;
-  hardware.enableRedistributableFirmware = true;
+  # Every firmware blob and every boot-time storage driver, so the same image
+  # works in a virtual machine and on real hardware.
+  hardware.enableAllHardware = true;
   hardware.cpu.intel.updateMicrocode = true;
   hardware.cpu.amd.updateMicrocode = true;
   time.timeZone = lib.mkDefault "Europe/Warsaw";
@@ -46,7 +46,7 @@
   security.sudo = { enable = true; wheelNeedsPassword = true; };
   environment.defaultPackages = [ ];
   # Offline configuration editing and basic network/storage diagnosis on both
-  # the live medium and installed system; no desktop dependencies.
+  # the live medium and the installed system.
   environment.systemPackages = with pkgs; [
     nano less curl pciutils usbutils ethtool smartmontools
   ];
@@ -66,8 +66,14 @@
   nix.gc.automatic = false;
   system.autoUpgrade.enable = false;
   boot.loader.timeout = lib.mkDefault 5;
+  # RAVNIX branded GRUB on every boot of the installed system.
+  boot.loader.grub.splashImage = ../assets/ravnix-boot-efi.png;
+  boot.loader.grub.splashMode = "stretch";
+  boot.loader.grub.backgroundColor = "#1a1423";
   environment.etc."issue".text = ''
-    RAVNIX — minimal NixOS console system
-    Network: nmtui / nmcli    Shell: Fish
+    RAVNIX — NixOS 26.05 with KDE Plasma 6
+
+    Desktop: log in graphically      Shell: Fish
+    Network: system tray or nmtui   Installer: desktop shortcut
   '';
 }

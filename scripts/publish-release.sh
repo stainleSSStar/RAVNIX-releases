@@ -15,13 +15,13 @@ p=Path(sys.argv[1]); files=list(p.glob('*.iso'));assert len(files)==1 and files[
 checksum,name=(p/'SHA256SUMS').read_text().strip().split()
 assert Path(name).name==files[0].name
 with files[0].open('rb') as f: assert hashlib.file_digest(f,'sha256').hexdigest()==checksum
-assert (p/'VM-TESTS.txt').read_text().startswith('PASS: BIOS and UEFI live, text installation, password login, rebuild and reboot.\n')
+assert (p/'VM-TESTS.txt').read_text().startswith('PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.\n')
 assert (p/'build-info.txt').is_file() and (p/'flake.lock').is_file()
 print('ISO checksum and full BIOS/UEFI test report verified.')
 PY
 gh release create "$tag" --repo "$release_repo" --draft --latest=false \
- --title "RAVNIX 26.05 TTY (${tag})" \
- --notes "Minimal console-only NixOS derivative: Fish, Ethernet/Wi-Fi networking and text installer. No graphical stack. BIOS and UEFI live, actual text installation, password-required login/sudo, pinned rebuild and reboot passed. See build-info.txt for exact source, GUIDE.md, VM-TESTS.txt and SHA256SUMS. Physical hardware and Secure Boot are outside VM coverage."
+ --title "RAVNIX 26.05 Desktop (${tag})" \
+ --notes "NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the standard NixOS graphical installer (Calamares) and RAVNIX's own text installer. BIOS and UEFI live, actual installation, password-required login/sudo, pinned rebuild and reboot passed. See build-info.txt for the exact source, GUIDE.md, VM-TESTS.txt and SHA256SUMS. Physical hardware and Secure Boot are outside VM coverage."
 for asset in "$directory"/*; do
  [[ -s $asset ]] || continue
  gh release upload "$tag" "$asset" --repo "$release_repo"

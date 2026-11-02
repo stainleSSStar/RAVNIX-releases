@@ -1,5 +1,5 @@
 {
-  description = "RAVNIX — minimal NixOS console live/installer distribution";
+  description = "RAVNIX — NixOS 26.05 distribution with KDE Plasma 6, Purple Neon theming and a tested live installer";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/26f4107e47e3ad0ffd0db220469ba83b6f6d96e8";
   outputs = { self, nixpkgs }:
     let

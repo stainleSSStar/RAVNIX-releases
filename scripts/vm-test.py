@@ -100,10 +100,17 @@ test "$ID" = ravnix
 test "$ID_LIKE" = nixos
 case "$(getent passwd "$USER" | cut -d: -f7)" in */fish) ;; *) false;; esac
 for command in nano less curl lspci lsusb ethtool smartctl; do command -v "$command"; done
-for command in Xorg Xwayland xfce4-session startx; do
- if command -v "$command"; then false; fi
+# Desktop stack: Plasma, the graphical network manager, the browser and the
+# everyday console tools.
+for command in plasmashell kwin_wayland kwin_x11 startplasma-wayland konsole kate dolphin \
+                plasma-nm btop fastfetch mc brave-origin calamares; do
+ command -v "$command"
 done
-if systemctl is-active --quiet display-manager; then false; fi
+systemctl is-active display-manager || systemctl is-active sddm
+test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg
+test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
+test -f /run/current-system/sw/share/sddm/themes/ravnix/Main.qml
+test -f /run/current-system/sw/share/ravnix/fastfetch-logo.txt
 if systemctl is-active --quiet sshd; then false; fi
 if ss -H -lnt | awk '{print $4}' | grep -Eq ':(22|6000)$'; then false; fi
 timeout 90 systemctl is-system-running --wait || true
@@ -162,6 +169,9 @@ def command(directory, mode, disk, iso=None):
     args = ['qemu-system-x86_64','-m','4096','-smp','2','-display','none',
             '-serial',f'unix:{serial},server=on,wait=off','-nic','user,model=virtio-net-pci',
             '-machine','accel=tcg',
+            # A KMS-capable display device, so Plasma and the greeter can
+            # actually start inside the virtual machine.
+            '-vga','virtio',
             '-drive',f'file={disk},format=qcow2,if=none,id=target']
     if mode == 'bios':
         args += ['-device','ich9-ahci,id=sata','-device','ide-hd,drive=target,bus=sata.0,serial=RAVNIXTEST']
@@ -264,7 +274,7 @@ if sudo -n true; then false; fi
                 if stage=='installed':
                     console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=1200)
                 poweroff(console)
-        print(f'PASS: {mode} live, text installation, login, rebuild, reboot',flush=True)
+        print(f'PASS: {mode} live, desktop, text installation, login, rebuild, reboot',flush=True)
 
 
 def main():
@@ -278,7 +288,7 @@ def main():
     for mode in (['bios','uefi'] if args.mode=='both' else [args.mode]):
         test_mode(iso,mode,out)
     if args.mode=='both':
-        report.write_text('PASS: BIOS and UEFI live, text installation, password login, rebuild and reboot.\nPhysical hardware, Secure Boot, dual boot and encryption are not tested.\n')
+        report.write_text('PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.\nPhysical hardware, Secure Boot, dual boot and encryption are not tested.\n')
 
 if __name__=='__main__':
     main()
