@@ -125,6 +125,7 @@ stdenv.mkDerivation {
 
   nativeBuildInputs = [
     dpkg
+    tar
     patchelf
   ];
   buildInputs = [
@@ -141,7 +142,12 @@ stdenv.mkDerivation {
 
   unpackPhase = ''
     runHook preUnpack
-    dpkg-deb -x "$src" .
+    # Do not use "dpkg-deb -x": it calls tar with -p, which fails when the
+    # archive contains a setuid file - the chrome-sandbox helper here. Extract
+    # the file tree with plain tar instead, exactly like the dpkg setup hook
+    # in nixpkgs does.
+    mkdir root
+    dpkg-deb --fsys-tarfile "$src" | tar --extract --directory=root
     runHook postUnpack
   '';
 
@@ -149,8 +155,8 @@ stdenv.mkDerivation {
     runHook preInstall
 
     mkdir -p "$out/bin"
-    cp -R usr/share "$out"
-    cp -R opt "$out/opt"
+    cp -R root/usr/share "$out"
+    cp -R root/opt "$out/opt"
 
     # The .deb ships a small bash launcher next to the real binary.
     export BINARYWRAPPER="$out/opt/brave.com/brave-origin/brave-origin"
