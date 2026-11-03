@@ -124,15 +124,21 @@ for command in plasmashell kwin_wayland kwin_x11 startplasma-wayland konsole kat
  check command -v "$command"
 done
 # The graphical network manager is a Plasma applet, not a command: it ships as
-# a Qt plugin and a KCM QML package inside the plasma-nm store path.
-nm_package=$(ls -d /nix/store/*-plasma-nm-* 2>/dev/null | head -1 || true)
+# a Qt plugin and a KCM QML package inside the plasma-nm store path. Only
+# directories are considered, because the store also holds the derivation file
+# of the same name, which would otherwise be picked up first.
+nm_package=$(find /nix/store -maxdepth 1 -type d -name '*-plasma-nm-*' 2>/dev/null | head -1 || true)
 if [ -z "$nm_package" ]; then
  echo "HEALTH CHECK FAILED: plasma-nm is not in the closure"
  failed=1
-elif ! ls "$nm_package"/lib/qt-6/plugins/plasma/applets/org.kde.plasma.networkmanagement.so \
-              "$nm_package"/share/kcm_networkmanagement/qml/main.qml >/dev/null 2>&1; then
- echo "HEALTH CHECK FAILED: the Plasma network applet is incomplete"
- failed=1
+else
+ for applet_file in "$nm_package"/lib/qt-6/plugins/plasma/applets/org.kde.plasma.networkmanagement.so \
+                   "$nm_package"/share/kcm_networkmanagement/qml/main.qml; do
+  if [ ! -f "$applet_file" ]; then
+   echo "HEALTH CHECK FAILED: missing $applet_file"
+   failed=1
+  fi
+ done
 fi
 check systemctl is-active display-manager
 check test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg

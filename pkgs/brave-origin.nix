@@ -239,6 +239,13 @@ stdenv.mkDerivation {
   installCheckPhase = ''
     # Bypass the upstream launcher, which swallows the exit status.
     timeout 300 "$out/opt/brave.com/brave-origin/brave" --version
+    # The wrapper chain users actually run has to print the version as well:
+    # the GApps wrapper, the upstream launcher and the browser. This is the
+    # same assertion the virtual machine test makes on the installed system.
+    timeout 300 "$out/bin/brave-origin" --version > "$TMPDIR/ravnix-brave-version.txt" 2>&1 || true
+    cat "$TMPDIR/ravnix-brave-version.txt"
+    grep -qiE 'brave|chromium' "$TMPDIR/ravnix-brave-version.txt"
+    grep -qE '[0-9]+[.][0-9]+' "$TMPDIR/ravnix-brave-version.txt"
   '';
 
   meta = {

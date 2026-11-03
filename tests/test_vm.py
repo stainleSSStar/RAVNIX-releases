@@ -134,22 +134,30 @@ class VMProtocol(unittest.TestCase):
             (root/'etc'/'os-release').write_text('ID=ravnix\nID_LIKE=nixos\n')
             (root/'etc'/'fastfetch.jsonc').write_text(
                 '{"source": "%s"}\n'%(share/'ravnix'/'fastfetch-logo.txt'))
-            package=root/'store'/'plasma-nm'
+            package=root/'store'/'8p5pbqx8z842kwa4k0csiv0jdydr2nlz-plasma-nm-6.6.6'
             for relative in ('lib/qt-6/plugins/plasma/applets/org.kde.plasma.networkmanagement.so',
                              'share/kcm_networkmanagement/qml/main.qml'):
                 (package/relative).parent.mkdir(parents=True,exist_ok=True)
                 (package/relative).touch()
+            # The store also holds the derivation of the same name. It sorts
+            # first and is a file, so it must not be mistaken for the package.
+            (root/'store'/'0abc-plasma-nm-6.6.6.drv').write_text('derivation')
             script=vm.HEALTH
             script=script.replace('/etc/os-release',str(root/'etc'/'os-release'))
             script=script.replace('/etc/skel/.config/fastfetch/config.jsonc',
                                    str(root/'etc'/'fastfetch.jsonc'))
             script=script.replace('/run/current-system/sw',str(root/'sw'))
-            script=script.replace('/nix/store/*-plasma-nm-*',str(package))
-            result=subprocess.run(['bash','-c',script],capture_output=True,text=True,
-                                  env={'PATH':str(bindir)+':/usr/bin:/bin','USER':'ravnix',
-                                       'HOME':str(root)})
+            script=script.replace('/nix/store',str(root/'store'))
+            environment={'PATH':str(bindir)+':/usr/bin:/bin','USER':'ravnix','HOME':str(root)}
+            result=subprocess.run(['bash','-c',script],capture_output=True,text=True,env=environment)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertNotIn('HEALTH CHECK FAILED',result.stdout)
             # Every check ran: the last one reports the systemd state.
             self.assertIn('running',result.stdout)
+            # A missing applet file is reported with its path.
+            (package/'share/kcm_networkmanagement/qml/main.qml').unlink()
+            result=subprocess.run(['bash','-c',script],capture_output=True,text=True,env=environment)
+            self.assertEqual(result.returncode,1,result.stdout+result.stderr)
+            self.assertIn('missing',result.stdout)
+            self.assertIn('main.qml',result.stdout)
 
