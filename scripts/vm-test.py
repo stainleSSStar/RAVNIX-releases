@@ -290,7 +290,11 @@ test -f "$HOME/.config/fastfetch/config.jsonc"
 # The browser has to start as an ordinary user, not only exist on disk.
 timeout 180 brave-origin --version >/tmp/ravnix-brave-version.txt 2>&1 || true
 sleep 3
+cat /tmp/ravnix-brave-version.txt
+# The output has to name the browser and carry a version number, so a
+# Chromium sandbox abort does not pass for a successful start.
 grep -qiE 'brave|chromium' /tmp/ravnix-brave-version.txt
+grep -qE '[0-9]+[.][0-9]+' /tmp/ravnix-brave-version.txt
 ''','RAVNIX_USER_OK')
                 console.send("sudo -k; sudo -p 'RAVNIX_SUDO_PASSWORD: ' bash --noprofile --norc\n")
                 console.expect(b'RAVNIX_SUDO_PASSWORD: ',timeout=30)
