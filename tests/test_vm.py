@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import subprocess
 import contextlib
 import io
+import tempfile
 
 spec=importlib.util.spec_from_file_location('vm',Path(__file__).resolve().parents[1]/'scripts/vm-test.py')
 vm=importlib.util.module_from_spec(spec);spec.loader.exec_module(vm)
@@ -96,3 +97,59 @@ class VMProtocol(unittest.TestCase):
                 vm.test_mode(Path('unused.iso'), mode, Path('.'))
         self.assertEqual(probes.count('RAVNIX_USER_OK'), 4)
         self.assertEqual(probes.count('RAVNIX_REBUILD_OK'), 2)
+
+    def test_health_block_runs_every_check_despite_a_failing_substitution(self):
+        # The probe runs with "set -Eeuo pipefail" and an ERR trap. A command
+        # substitution that fails used to fire that trap inside the
+        # substitution, abort the health check and hide every later failure.
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); bindir=root/'bin'; bindir.mkdir()
+            def fake(name, body):
+                path=bindir/name; path.write_text(body); path.chmod(0o755)
+            fake('systemctl','#!/bin/sh\n'
+                'case "$1 $2" in\n'
+                '"is-active --quiet") [ "$3" = NetworkManager ] && exit 0; exit 3;;\n'
+                '"is-active sshd") exit 3;;\n'
+                '"is-active display-manager") echo active; exit 0;;\n'
+                '"is-system-running --wait") echo running; exit 0;;\n'
+                '"--failed "*) exit 0;;\n'
+                'esac\nexit 0\n')
+            fake('nmcli','#!/bin/sh\necho "STATE CONNECTIVITY"\n')
+            fake('ss','#!/bin/sh\necho "LISTEN 0 4096 127.0.0.53:53 0.0.0.0:*"\n')
+            fake('getent','#!/bin/sh\n'
+                '[ "$2" = ravnix ] && echo "ravnix:x:1000:1000::/home/ravnix:/bin/fish"\nexit 0\n')
+            fake('timeout','#!/bin/sh\nshift\nexec "$@"\n')
+            for command in ('nano','less','curl','lspci','lsusb','ethtool','smartctl',
+                            'plasmashell','kwin_wayland','kwin_x11','startplasma-wayland',
+                            'konsole','kate','dolphin','btop','fastfetch','mc',
+                            'brave-origin','calamares'):
+                fake(command,'#!/bin/sh\nexit 0\n')
+            share=root/'sw'/'share'
+            for relative in ('backgrounds/ravnix/ravnix-wallpaper.jpg',
+                             'color-schemes/RAVNIX-PurpleNeon.colorscheme',
+                             'sddm/themes/ravnix/Main.qml','ravnix/fastfetch-logo.txt'):
+                (share/relative).parent.mkdir(parents=True,exist_ok=True)
+                (share/relative).touch()
+            (root/'etc').mkdir()
+            (root/'etc'/'os-release').write_text('ID=ravnix\nID_LIKE=nixos\n')
+            (root/'etc'/'fastfetch.jsonc').write_text(
+                '{"source": "%s"}\n'%(share/'ravnix'/'fastfetch-logo.txt'))
+            package=root/'store'/'plasma-nm'
+            for relative in ('lib/qt-6/plugins/plasma/applets/org.kde.plasma.networkmanagement.so',
+                             'share/kcm_networkmanagement/qml/main.qml'):
+                (package/relative).parent.mkdir(parents=True,exist_ok=True)
+                (package/relative).touch()
+            script=vm.HEALTH
+            script=script.replace('/etc/os-release',str(root/'etc'/'os-release'))
+            script=script.replace('/etc/skel/.config/fastfetch/config.jsonc',
+                                   str(root/'etc'/'fastfetch.jsonc'))
+            script=script.replace('/run/current-system/sw',str(root/'sw'))
+            script=script.replace('/nix/store/*-plasma-nm-*',str(package))
+            result=subprocess.run(['bash','-c',script],capture_output=True,text=True,
+                                  env={'PATH':str(bindir)+':/usr/bin:/bin','USER':'ravnix',
+                                       'HOME':str(root)})
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertNotIn('HEALTH CHECK FAILED',result.stdout)
+            # Every check ran: the last one reports the systemd state.
+            self.assertIn('running',result.stdout)
+

@@ -90,7 +90,12 @@ def probe_command(body, marker):
 
 HEALTH = '''
 # Every check is run even when an earlier one failed, so one run reports all
-# problems instead of only the first.
+# problems instead of only the first. The block runs in a subshell without
+# "errexit" and without the inherited ERR trap: a failing command substitution
+# would otherwise abort the whole health check before the remaining checks run.
+(
+trap - ERR
+set +e
 failed=0
 check() {
   if ! "$@"; then
@@ -118,10 +123,17 @@ for command in plasmashell kwin_wayland kwin_x11 startplasma-wayland konsole kat
                 btop fastfetch mc brave-origin calamares; do
  check command -v "$command"
 done
-# The graphical network manager is a Plasma applet, not a command: the plugin
-# lives in plasma/applets and its QML package next to it.
-check test -f /run/current-system/sw/share/plasma/applets/org.kde.plasma.networkmanagement.so \
-  -o -f /run/current-system/sw/share/plasma/networkmanagement/main.qml
+# The graphical network manager is a Plasma applet, not a command: it ships as
+# a Qt plugin and a KCM QML package inside the plasma-nm store path.
+nm_package=$(ls -d /nix/store/*-plasma-nm-* 2>/dev/null | head -1 || true)
+if [ -z "$nm_package" ]; then
+ echo "HEALTH CHECK FAILED: plasma-nm is not in the closure"
+ failed=1
+elif ! ls "$nm_package"/lib/qt-6/plugins/plasma/applets/org.kde.plasma.networkmanagement.so \
+              "$nm_package"/share/kcm_networkmanagement/qml/main.qml >/dev/null 2>&1; then
+ echo "HEALTH CHECK FAILED: the Plasma network applet is incomplete"
+ failed=1
+fi
 check systemctl is-active display-manager
 check test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg
 check test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
@@ -130,12 +142,27 @@ check test -f /run/current-system/sw/share/ravnix/fastfetch-logo.txt
 # The fastfetch branding has to point at a file that really exists.
 fastfetch_logo=$(grep '"source"' /etc/skel/.config/fastfetch/config.jsonc | head -1 | cut -d '"' -f 4 || true)
 check test -f "$fastfetch_logo"
-check test -z "$(systemctl is-active --quiet sshd && echo started)"
-check test -z "$(ss -H -lnt | awk '{print $4}' | grep -E ':(22|6000)$')"
+# No SSH server and no SSH or X11 listener. The offending value is printed, so
+# a failure says what was actually found.
+sshd_state=$(systemctl is-active sshd 2>/dev/null || true)
+if [ "$sshd_state" = active ]; then
+ echo "HEALTH CHECK FAILED: sshd is running"
+ failed=1
+fi
+listeners=$(ss -H -lnt 2>/dev/null | awk '{print $4}' | grep -E ':(22|6000)$' || true)
+if [ -n "$listeners" ]; then
+ echo "HEALTH CHECK FAILED: unexpected listeners: $listeners"
+ failed=1
+fi
 timeout 90 systemctl is-system-running --wait || true
 systemctl --failed --no-pager || true
-check test -z "$(systemctl --failed --no-legend --plain)"
-test "$failed" = 0
+failed_units=$(systemctl --failed --no-legend --plain 2>/dev/null || true)
+if [ -n "$failed_units" ]; then
+ echo "HEALTH CHECK FAILED: failed systemd units: $failed_units"
+ failed=1
+fi
+exit "$failed"
+)
 '''
 
 class VM:
@@ -246,7 +273,9 @@ def quiet_bash(console, live=False):
 def test_mode(iso, mode, out):
     with tempfile.TemporaryDirectory(prefix='ravnix-vm-') as tmp:
         directory=Path(tmp);disk=directory/'target.qcow2'
-        subprocess.run(['qemu-img','create','-f','qcow2',str(disk),'20G'],check=True)
+        # The desktop closure is about 10 GiB, so the installation needs more
+        # room than the console-era image did. The image is sparse.
+        subprocess.run(['qemu-img','create','-f','qcow2',str(disk),'40G'],check=True)
         args,serial=command(directory,mode,disk,iso)
         with VM(args,serial,out,f'vm-{mode}-live') as console:
             quiet_bash(console,live=True)
