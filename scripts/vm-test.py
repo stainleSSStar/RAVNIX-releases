@@ -89,37 +89,53 @@ def probe_command(body, marker):
             ' || printf "\\nRAVNIX_VM_FAIL\\n"')
 
 HEALTH = '''
+# Every check is run even when an earlier one failed, so one run reports all
+# problems instead of only the first.
+failed=0
+check() {
+  if ! "$@"; then
+    echo "HEALTH CHECK FAILED: $*"
+    failed=1
+  fi
+}
 for attempt in {1..90}; do
  if systemctl is-active --quiet NetworkManager; then break; fi
  sleep 1
 done
-systemctl is-active NetworkManager
-nmcli general status
+check systemctl is-active NetworkManager
+nmcli general status || true
 source /etc/os-release
-test "$ID" = ravnix
-test "$ID_LIKE" = nixos
-case "$(getent passwd "$USER" | cut -d: -f7)" in */fish) ;; *) false;; esac
-for command in nano less curl lspci lsusb ethtool smartctl; do command -v "$command"; done
+check test "$ID" = ravnix
+check test "$ID_LIKE" = nixos
+login_shell=$(getent passwd "$USER" | cut -d: -f7 || true)
+case "$login_shell" in
+ */fish) ;;
+ *) echo "HEALTH CHECK FAILED: login shell is $login_shell"; failed=1;;
+esac
+for command in nano less curl lspci lsusb ethtool smartctl; do check command -v "$command"; done
 # Desktop stack: Plasma, the everyday console tools and the applications.
 for command in plasmashell kwin_wayland kwin_x11 startplasma-wayland konsole kate dolphin \
                 btop fastfetch mc brave-origin calamares; do
- command -v "$command"
+ check command -v "$command"
 done
-# The graphical network manager is a Plasma applet, not a command.
-test -d /run/current-system/sw/share/plasma/plasmoids/org.kde.plasma.networkmanagement
-systemctl is-active display-manager || systemctl is-active sddm
-test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg
-test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
-test -f /run/current-system/sw/share/sddm/themes/ravnix/Main.qml
-test -f /run/current-system/sw/share/ravnix/fastfetch-logo.txt
+# The graphical network manager is a Plasma applet, not a command: the plugin
+# lives in plasma/applets and its QML package next to it.
+check test -f /run/current-system/sw/share/plasma/applets/org.kde.plasma.networkmanagement.so \
+  -o -f /run/current-system/sw/share/plasma/networkmanagement/main.qml
+check systemctl is-active display-manager
+check test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg
+check test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
+check test -f /run/current-system/sw/share/sddm/themes/ravnix/Main.qml
+check test -f /run/current-system/sw/share/ravnix/fastfetch-logo.txt
 # The fastfetch branding has to point at a file that really exists.
-fastfetch_logo=$(grep '"source"' /etc/skel/.config/fastfetch/config.jsonc | head -1 | cut -d '"' -f 4)
-test -f "$fastfetch_logo"
-if systemctl is-active --quiet sshd; then false; fi
-if ss -H -lnt | awk '{print $4}' | grep -Eq ':(22|6000)$'; then false; fi
+fastfetch_logo=$(grep '"source"' /etc/skel/.config/fastfetch/config.jsonc | head -1 | cut -d '"' -f 4 || true)
+check test -f "$fastfetch_logo"
+check test -z "$(systemctl is-active --quiet sshd && echo started)"
+check test -z "$(ss -H -lnt | awk '{print $4}' | grep -E ':(22|6000)$')"
 timeout 90 systemctl is-system-running --wait || true
-systemctl --failed --no-pager
-test -z "$(systemctl --failed --no-legend --plain)"
+systemctl --failed --no-pager || true
+check test -z "$(systemctl --failed --no-legend --plain)"
+test "$failed" = 0
 '''
 
 class VM:
