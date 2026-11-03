@@ -98,6 +98,25 @@ class VMProtocol(unittest.TestCase):
         self.assertEqual(probes.count('RAVNIX_USER_OK'), 4)
         self.assertEqual(probes.count('RAVNIX_REBUILD_OK'), 2)
 
+    def test_accelerator_uses_hardware_virtualisation_when_it_works(self):
+        # Software emulation makes the installation test ten times slower, so
+        # the accelerator is probed before the virtual machine is started.
+        with patch.object(vm.Path, 'exists', return_value=False):
+            self.assertEqual(vm.qemu_accelerator(), 'tcg')
+        with patch.object(vm.Path, 'exists', return_value=True), \
+             patch.object(vm.os, 'access', return_value=True), \
+             patch.object(vm.subprocess, 'run') as probe:
+            probe.return_value=Mock(returncode=0)
+            self.assertEqual(vm.qemu_accelerator(), 'kvm')
+            probe.return_value=Mock(returncode=1)
+            self.assertEqual(vm.qemu_accelerator(), 'tcg')
+
+    def test_command_uses_the_requested_accelerator(self):
+        args,_=vm.command(Path('/tmp'),'bios',Path('/tmp/disk.qcow2'),None,'kvm')
+        self.assertIn('accel=kvm',args)
+        args,_=vm.command(Path('/tmp'),'bios',Path('/tmp/disk.qcow2'),None,'tcg')
+        self.assertIn('accel=tcg',args)
+
     def test_health_block_runs_every_check_despite_a_failing_substitution(self):
         # The probe runs with "set -Eeuo pipefail" and an ERR trap. A command
         # substitution that fails used to fire that trap inside the

@@ -108,6 +108,8 @@ jobs:
           df -h /
       - name: Test BIOS live ISO, installation, login, rebuild and reboot
         run: |
+          echo "runner cores: $(nproc), memory: $(free -g | awk '/^Mem:/{print $2}') GiB"
+          ls -l /dev/kvm || echo "no /dev/kvm on this runner"
           sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"

@@ -2,6 +2,7 @@
 """Test the actual release ISO and text installer on disposable QEMU disks only."""
 import argparse
 import base64
+import os
 import re
 from pathlib import Path
 import shlex
@@ -12,6 +13,20 @@ import tempfile
 import time
 
 PASSWORD = 'ravnix-test-password'
+
+def qemu_accelerator():
+    """Hardware virtualisation makes the installation test about ten times
+    faster. The runners expose /dev/kvm, but the probe keeps the test working
+    on machines without it."""
+    if not Path('/dev/kvm').exists() or not os.access('/dev/kvm', os.R_OK | os.W_OK):
+        return 'tcg'
+    try:
+        probe = subprocess.run(
+            ['qemu-system-x86_64','-machine','accel=kvm','-display','none','-nodefaults','-S'],
+            input=b'quit\n', capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return 'tcg'
+    return 'kvm' if probe.returncode == 0 else 'tcg'
 
 class Console:
     def __init__(self, connection, process, timeout):
@@ -216,12 +231,14 @@ class VM:
                     self.process.wait()
 
 
-def command(directory, mode, disk, iso=None):
+def command(directory, mode, disk, iso=None, accel='tcg'):
     serial = directory/'serial.sock'
     serial.unlink(missing_ok=True)
-    args = ['qemu-system-x86_64','-m','4096','-smp','2','-display','none',
+    # More guest cores mean a faster store copy during the installation.
+    cpus = max(2, min(4, os.cpu_count() or 2))
+    args = ['qemu-system-x86_64','-m','4096','-smp',str(cpus),'-display','none',
             '-serial',f'unix:{serial},server=on,wait=off','-nic','user,model=virtio-net-pci',
-            '-machine','accel=tcg',
+            '-machine',f'accel={accel}',
             # A KMS-capable display device, so Plasma and the greeter can
             # actually start inside the virtual machine.
             '-vga','virtio',
@@ -282,7 +299,9 @@ def test_mode(iso, mode, out):
         # The desktop closure is about 10 GiB, so the installation needs more
         # room than the console-era image did. The image is sparse.
         subprocess.run(['qemu-img','create','-f','qcow2',str(disk),'40G'],check=True)
-        args,serial=command(directory,mode,disk,iso)
+        accel=qemu_accelerator()
+        print('ACCELERATOR:', accel, flush=True)
+        args,serial=command(directory,mode,disk,iso,accel)
         with VM(args,serial,out,f'vm-{mode}-live') as console:
             quiet_bash(console,live=True)
             # The live user's login shell remains Fish even when the test runs Bash as root.
@@ -294,7 +313,9 @@ def test_mode(iso, mode, out):
                 console.expect(prompt.encode(),timeout=120)
                 console.send(answer+'\n')
             print('WAIT: installation and password prompt', mode, flush=True)
-            console.expect(b'New password:',timeout=5400)
+            # Copying about 10 GiB into the guest store takes a long time under
+            # software emulation, so the wait has to be generous.
+            console.expect(b'New password:',timeout=10800)
             console.send(PASSWORD+'\n')
             console.expect(b'Retype new password:',timeout=60)
             console.send(PASSWORD+'\n')
@@ -304,10 +325,10 @@ def test_mode(iso, mode, out):
             console.run('mount '+device+'2 /mnt' if mode=='bios' else 'mount '+device+'p2 /mnt', 'RAVNIX_TARGET_MOUNTED')
             if mode=='uefi':
                 console.run('mount /dev/nvme0n1p1 /mnt/boot/efi','RAVNIX_ESP_MOUNTED')
-            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=5400)
+            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=10800)
             poweroff(console)
         for stage in ('installed','rebuilt'):
-            args,serial=command(directory,mode,disk)
+            args,serial=command(directory,mode,disk,accel=accel)
             with VM(args,serial,out,f'vm-{mode}-{stage}') as console:
                 console.expect(b'login:',timeout=1800)
                 console.send('tester\n')
@@ -337,7 +358,7 @@ grep -qE '[0-9]+[.][0-9]+' /tmp/ravnix-brave-version.txt
                 console.expect(b'# ',timeout=30)
                 console.run('test "$(passwd -S root | awk \'{print $2}\')" = L; visudo -cf /etc/sudoers; test -f /etc/nixos/flake.lock; test -f /etc/nixos/hardware-configuration.nix; test -f /etc/nixos/host.nix; if grep -R -E "autologin.*ravnix|NOPASSWD" /etc/sudoers /etc/sudoers.d; then false; fi; nm-online -q --timeout=90','RAVNIX_ROOT_OK')
                 if stage=='installed':
-                    console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=5400)
+                    console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=10800)
                 poweroff(console)
         print(f'PASS: {mode} live, desktop, text installation, login, rebuild, reboot',flush=True)
 
