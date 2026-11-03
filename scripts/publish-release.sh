@@ -11,17 +11,34 @@ gh release download "$tag" --repo "$source_repo" --dir "$directory"
 python3 - "$directory" <<'PY'
 import hashlib,sys
 from pathlib import Path
-p=Path(sys.argv[1]); files=list(p.glob('*.iso'));assert len(files)==1 and files[0].stat().st_size>0
-checksum,name=(p/'SHA256SUMS').read_text().strip().split()
-assert Path(name).name==files[0].name
-with files[0].open('rb') as f: assert hashlib.file_digest(f,'sha256').hexdigest()==checksum
+p=Path(sys.argv[1])
+parts=sorted(p.glob('*.iso.part-*'))
+assert parts, 'no ISO parts found in the draft'
+assert not list(p.glob('*.iso')), 'the draft must not contain an unsplit image'
+expected={}
+for line in (p/'SHA256SUMS').read_text().splitlines():
+    if line.strip():
+        digest,name=line.split()
+        expected[Path(name).name]=digest
+assert set(expected)=={part.name for part in parts}, 'SHA256SUMS does not match the parts'
+for part in parts:
+    with part.open('rb') as f:
+        assert hashlib.file_digest(f,'sha256').hexdigest()==expected[part.name], part.name
+# The reassembled image must match the digest of the image that was tested.
+whole=hashlib.sha256()
+for part in parts:
+    with part.open('rb') as f:
+        for chunk in iter(lambda: f.read(8*1024*1024), b''):
+            whole.update(chunk)
+assert whole.hexdigest()==(p/'ISO-SHA256').read_text().split()[0], 'reassembled image does not match ISO-SHA256'
 assert (p/'VM-TESTS.txt').read_text().startswith('PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.\n')
 assert (p/'build-info.txt').is_file() and (p/'flake.lock').is_file()
-print('ISO checksum and full BIOS/UEFI test report verified.')
+assert (p/'PARTS.txt').is_file()
+print(f'{len(parts)} parts verified, reassembled image matches ISO-SHA256, full BIOS/UEFI test report verified.')
 PY
 gh release create "$tag" --repo "$release_repo" --draft --latest=false \
  --title "RAVNIX 26.05 Desktop (${tag})" \
- --notes "NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the standard NixOS graphical installer (Calamares) and RAVNIX's own text installer. BIOS and UEFI live, actual installation, password-required login/sudo, pinned rebuild and reboot passed. See build-info.txt for the exact source, GUIDE.md, VM-TESTS.txt and SHA256SUMS. Physical hardware and Secure Boot are outside VM coverage."
+ --notes "NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the standard NixOS graphical installer (Calamares) and RAVNIX's own text installer. The image is published in parts because GitHub limits a release asset to 2 GiB: run 'cat ravnix-26.05-x86_64.iso.part-* > ravnix-26.05-x86_64.iso' and verify it against ISO-SHA256. BIOS and UEFI live, actual installation, password-required login/sudo, pinned rebuild and reboot passed. See build-info.txt for the exact source, PARTS.txt, GUIDE.md, VM-TESTS.txt and SHA256SUMS. Physical hardware and Secure Boot are outside VM coverage."
 for asset in "$directory"/*; do
  [[ -s $asset ]] || continue
  gh release upload "$tag" "$asset" --repo "$release_repo"

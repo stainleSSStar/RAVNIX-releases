@@ -41,7 +41,8 @@ nix flake check --no-build
 Push/PR runs validation. **Actions → Build RAVNIX ISO → Run workflow** builds
 and tests the actual ISO and text installer in BIOS and UEFI. With `stage_release`
 enabled, only a successful test run uploads its files to a private draft in this
-source repository. No Actions artifact storage is used. Failed tests do not stage
+source repository. The tested image parts are additionally kept for 30 days as a
+recoverable Actions artifact. Failed tests do not stage
 an ISO. The built-in token stays scoped to this repository; no personal credential
 is stored in Actions.
 
@@ -58,9 +59,17 @@ uploads a draft in the public releases repository, then publishes only after all
 uploads succeed. The source repository stays private. `stage_release=false`
 performs an ephemeral build/test without saving the ISO.
 
-Each release includes ISO, SHA256SUMS, exact source/Nixpkgs revisions, store-path
-manifest, closure size, guide, lockfile and VM/build logs. Verify SHA256SUMS before
-writing the ISO. The firmware/kernel coverage retains necessary dependencies;
+Each release includes the ISO in parts, SHA256SUMS, exact source/Nixpkgs revisions,
+store-path manifest, closure size, guide, lockfile and VM/build logs. The image is
+larger than the 2 GiB limit GitHub puts on a single release asset, so it is
+published as `ravnix-26.05-x86_64.iso.part-00` and friends. Reassemble it with:
+
+```sh
+cat ravnix-26.05-x86_64.iso.part-* > ravnix-26.05-x86_64.iso
+sha256sum -c ISO-SHA256
+```
+
+The firmware/kernel coverage retains necessary dependencies;
 Nix store path counts are not directly comparable to Arch package counts.
 
 Install from the booted ISO with `sudo ravnix-install`, or use the *Install

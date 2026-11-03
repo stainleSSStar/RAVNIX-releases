@@ -7,6 +7,20 @@ network applet, the standard NixOS graphical installer and RAVNIX's own text
 installer. Secure Boot is not configured. Use BIOS or x86_64 UEFI with Secure
 Boot off.
 
+## Getting the image
+
+Releases are published in
+**[RAVNIX-releases](https://github.com/stainleSSStar/RAVNIX-releases/releases)**.
+GitHub refuses a single release asset of 2 GiB or more and the desktop image is
+about 3.7 GB, so the image is published in parts:
+
+```sh
+cat ravnix-26.05-x86_64.iso.part-* > ravnix-26.05-x86_64.iso
+sha256sum -c ISO-SHA256
+```
+
+`sha256sum -c SHA256SUMS` checks the parts themselves before reassembling them.
+
 ## Live session
 
 The live medium boots into the Plasma desktop and logs in as `ravnix`

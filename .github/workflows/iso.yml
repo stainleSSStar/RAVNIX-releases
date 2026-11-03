@@ -99,7 +99,9 @@ jobs:
           nix path-info --recursive .#nixosConfigurations.live.config.system.build.toplevel > out/live-store-paths.txt
           nix path-info --closure-size .#nixosConfigurations.live.config.system.build.toplevel > out/closure-size.txt
           printf 'Source: %s\nNixpkgs: %s\n' "$GITHUB_SHA" "$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock)" > out/build-info.txt
-          (cd out && sha256sum *.iso > SHA256SUMS && sha256sum -c SHA256SUMS)
+          # The desktop image is larger than the 2 GiB release-asset limit, so
+          # the whole-image digest is kept apart from the per-part digests.
+          (cd out && sha256sum *.iso > ISO-SHA256 && sha256sum -c ISO-SHA256)
           # The ISO does not reference the closure it contains, so the store can
           # be trimmed again to leave room for the virtual machine disks.
           nix store gc || true
@@ -118,6 +120,52 @@ jobs:
       - name: Record full firmware validation
         run: |
           printf '%s\n' 'PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.' 'Physical hardware, Secure Boot, dual boot and encryption are not tested.' > out/VM-TESTS.txt
+      - name: Split the image into release parts
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # GitHub rejects release assets of 2 GiB or more, and the desktop
+          # image is about 3.7 GB, so the tested image is published in parts.
+          isos=(out/*.iso)
+          [[ ${#isos[@]} == 1 && -s ${isos[0]} ]]
+          image=${isos[0]}
+          name=$(basename "$image")
+          split -b 1800M -d -a 2 -- "$image" "out/$name.part-"
+          rm -f -- "$image"
+          (cd out && sha256sum "$name".part-* > SHA256SUMS && sha256sum -c SHA256SUMS)
+          {
+            printf '%s\n' \
+              'The RAVNIX desktop ISO is published in parts because GitHub limits a' \
+              'single release asset to 2 GiB and the image is larger than that.' \
+              '' \
+              'Reassemble it:' \
+              '' \
+              "    cat $name.part-* > $name" \
+              '' \
+              'Verify the parts before reassembling:' \
+              '' \
+              '    sha256sum -c SHA256SUMS' \
+              '' \
+              'Verify the reassembled image afterwards:' \
+              '' \
+              "    sha256sum -c ISO-SHA256"
+          } > out/PARTS.txt
+          cat out/PARTS.txt
+          ls -l out/
+      - name: Keep the tested parts recoverable
+        if: success()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ravnix-iso-parts
+          path: |
+            out/*.iso.part-*
+            out/SHA256SUMS
+            out/ISO-SHA256
+            out/PARTS.txt
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
       - name: Stage complete tested release (private draft)
         if: success() && inputs.stage_release
         env:
@@ -126,13 +174,13 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          isos=(out/*.iso)
-          [[ ${#isos[@]} == 1 && -s ${isos[0]} ]]
+          parts=(out/*.iso.part-*)
+          [[ ${#parts[@]} -ge 1 ]]
           (cd out && sha256sum -c SHA256SUMS)
           grep -qx 'PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.' out/VM-TESTS.txt
           tag="v26.05-r${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" --draft --latest=false --title "RAVNIX 26.05 Desktop (build ${GITHUB_RUN_NUMBER})" --notes "NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the standard NixOS graphical installer (Calamares) and RAVNIX's own text installer. Source: ${GITHUB_SHA}. BIOS and UEFI live, actual installation, password-required sudo, rebuild and reboot tests passed. See GUIDE.md, SHA256SUMS and VM logs. Physical hardware and Secure Boot are not covered."
-          for asset in out/*; do
+          gh release create "$tag" --draft --latest=false --title "RAVNIX 26.05 Desktop (build ${GITHUB_RUN_NUMBER})" --notes "NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the standard NixOS graphical installer (Calamares) and RAVNIX's own text installer. The image is published in parts because GitHub limits a release asset to 2 GiB; reassemble it with 'cat ravnix-26.05-x86_64.iso.part-* > ravnix-26.05-x86_64.iso' and verify it against ISO-SHA256. Source: ${GITHUB_SHA}. BIOS and UEFI live, actual installation, password-required sudo, rebuild and reboot tests passed. See GUIDE.md, PARTS.txt, SHA256SUMS and VM logs. Physical hardware and Secure Boot are not covered."
+          for asset in out/*.iso.part-* out/SHA256SUMS out/ISO-SHA256 out/PARTS.txt out/VM-TESTS.txt out/build-info.txt out/flake.lock out/GUIDE.md out/closure-size.txt out/live-store-paths.txt out/vm-bios-tests.log out/vm-uefi-tests.log; do
             [[ -s $asset ]] || continue
             gh release upload "$tag" "$asset"
           done
