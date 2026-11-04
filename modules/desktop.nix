@@ -170,8 +170,8 @@ in
   # an account can change its own configuration.
   system.activationScripts."users-ravnix-profile" = {
     text = ''
-      for home in ${lib.concatMapStrings (name: user: user.home)
-        (lib.filterAttrs (name: user: user.isNormalUser) config.users.users)}; do
+      for home in ${lib.concatStringsSep " " (lib.mapAttrsToList (name: user: user.home)
+        (lib.filterAttrs (name: user: user.isNormalUser) config.users.users))}; do
         if [ -d "$home" ]; then
           cp -rn /etc/skel/. "$home"/ 2>/dev/null || true
         fi
