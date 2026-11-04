@@ -92,7 +92,7 @@ def probe_script(body, marker):
     # A newline is valid after both a command and a trailing comment; a leading
     # semicolon on the following line is a Bash syntax error.
     return ('set -Eeuo pipefail\n'
-            'trap \'printf "\\nRAVNIX_VM_FAIL\\n"\' ERR\n'
+            'trap \'printf "\\nRAVNIX_VM_FAIL\\n"; printf "failed command: %s\\n" "$BASH_COMMAND"\' ERR\n'
             + body.rstrip() + '\nprintf "\\n' + marker + '\\n"\n')
 
 

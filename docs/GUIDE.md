@@ -52,6 +52,10 @@ The wallpaper, the colour scheme and the greeter theme are RAVNIX specific:
   shell starts.
 * **Konsole** uses the RAVNIX colour scheme with a slightly transparent
   background.
+* Every new account gets the RAVNIX profile in its home directory: the
+  Konsole profile, the colour scheme, the btop theme and the fastfetch
+  configuration with the RAVNIX "R" logo. Files that already exist are left
+  alone, so an account can change its own configuration.
 
 To change them, edit `modules/desktop.nix` and rebuild. The assets live in
 `assets/`: `ravnix-wallpaper.jpg`, `RAVNIX-PurpleNeon.colorscheme` and the

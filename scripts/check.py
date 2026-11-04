@@ -42,6 +42,10 @@ assert 'programs.partition-manager.enable = true;' in desktop
 for package in ('mc', 'btop', 'fastfetch', 'calamares-nixos', 'braveOrigin'):
     assert package in desktop, package
 assert '../pkgs/brave-origin.nix' in desktop
+# NixOS never copies /etc/skel into a new home directory, so the profile has
+# to be seeded into the accounts by the system itself.
+assert 'users-ravnix-profile' in desktop
+assert 'cp -rn /etc/skel' in desktop
 
 # Live medium: autologin into the desktop, branded bootloaders.
 assert 'services.displayManager.autoLogin' in live

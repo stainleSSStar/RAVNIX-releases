@@ -161,4 +161,21 @@ in
     NoDisplay=true
     X-KDE-autostart-phase=Application
   '';
+
+  # NixOS creates the home directories of the users, but it never copies
+  # /etc/skel into them, so the RAVNIX profile has to be seeded by hand.
+  # Otherwise a new account has neither the fastfetch logo configuration nor
+  # the RAVNIX Konsole profile. The script is named so that it runs after the
+  # activation script that creates the users, and existing files are kept, so
+  # an account can change its own configuration.
+  system.activationScripts."users-ravnix-profile" = {
+    text = ''
+      for home in ${lib.concatMapStrings (name: user: user.home)
+        (lib.filterAttrs (name: user: user.isNormalUser) config.users)}; do
+        if [ -d "$home" ]; then
+          cp -rn /etc/skel/. "$home"/ 2>/dev/null || true
+        fi
+      done
+    '';
+  };
 }
