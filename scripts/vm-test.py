@@ -315,7 +315,9 @@ def test_mode(iso, mode, out):
             print('WAIT: installation and password prompt', mode, flush=True)
             # Copying about 10 GiB into the guest store takes a long time under
             # software emulation, so the wait has to be generous.
-            console.expect(b'New password:',timeout=10800)
+            # The installation copies the whole desktop closure, which is
+            # slow under software emulation; the wait has to be generous.
+            console.expect(b'New password:',timeout=14400)
             console.send(PASSWORD+'\n')
             console.expect(b'Retype new password:',timeout=60)
             console.send(PASSWORD+'\n')
@@ -325,7 +327,7 @@ def test_mode(iso, mode, out):
             console.run('mount '+device+'2 /mnt' if mode=='bios' else 'mount '+device+'p2 /mnt', 'RAVNIX_TARGET_MOUNTED')
             if mode=='uefi':
                 console.run('mount /dev/nvme0n1p1 /mnt/boot/efi','RAVNIX_ESP_MOUNTED')
-            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=10800)
+            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd --option fallback true --option connect-timeout 30 --option stalled-download-timeout 120; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=14400)
             poweroff(console)
         for stage in ('installed','rebuilt'):
             args,serial=command(directory,mode,disk,accel=accel)

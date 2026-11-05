@@ -55,6 +55,26 @@ class InstallerGuards(unittest.TestCase):
         self.assertLess(source.index('[[ $identity == "$current" ]]'),source.index('parted -s "$disk" mklabel'))
         self.assertLess(source.index('nixos-enter --root /mnt --command "passwd $username"'),source.index('\n unmount_target\n'))
 
+    def test_installation_survives_an_interrupted_download(self):
+        # The installation copies about ten gigabytes and needs the network for
+        # the paths that are not in the live image. A single failed transfer
+        # must not abort an installation that has already erased the disk, so
+        # nix is told to build the missing path from source as a last resort.
+        for name in ['scripts/install.sh', 'scripts/vm-test.py']:
+            source = (ROOT/name).read_text()
+            with self.subTest(script=name):
+                self.assertIn('--option fallback true', source)
+                self.assertIn('--option connect-timeout 30', source)
+                self.assertIn('--option stalled-download-timeout 120', source)
+
+    def test_the_resilient_options_belong_to_the_install_command(self):
+        # They have to reach nixos-install, not a separate invocation, and the
+        # option needs its value as the next argument.
+        source = (ROOT/'scripts/install.sh').read_text()
+        command = re.search(r'nixos-install[^\n]*(?:\n\s+[^\n]*)?', source).group(0)
+        self.assertIn('--option fallback true', command)
+        self.assertNotIn('nixos-install', source[source.index(command)+len(command):])
+
     @unittest.skipUnless(shutil.which('nix-instantiate'), 'Nix evaluator runs in Linux CI')
     def test_generated_host_evaluates_with_keyword_usernames(self):
         source=(ROOT/'scripts/install.sh').read_text()
