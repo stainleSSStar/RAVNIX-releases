@@ -84,6 +84,17 @@ class InstallerGuards(unittest.TestCase):
         source = (ROOT/'modules/desktop.nix').read_text()
         script = re.search(r'system\.activationScripts\."users-ravnix-profile" = \{\n'
                            r'    text = \'\'\n(.*?)\n    \'\';', source, re.S).group(1)
+        # Nix reads an unescaped dollar sign as the start of its own
+        # interpolation, so the expansion of the shell would be a syntax error
+        # in the module. Only the interpolation of the accounts is intended.
+        rest = re.sub(r'\$\{lib\.concatMapStringsSep.*?\};', '', script, flags=re.S)
+        for match in re.finditer(r'\$\{', rest):
+            self.assertEqual(rest[max(0, match.start()-2):match.start()], "''",
+                             'the activation script has an unescaped interpolation')
+        # Render the string the way Nix does: an escaped interpolation marker
+        # becomes a plain dollar sign, so the shell sees the expansion it
+        # expects.
+        script = script.replace("''${", '${')
         # Render the Nix interpolation with a single account.
         script = re.sub(r'\$\{lib\.concatMapStringsSep.*?\};',
                         'operator:/home/operator;', script, flags=re.S)

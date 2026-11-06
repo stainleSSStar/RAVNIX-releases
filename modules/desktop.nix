@@ -179,8 +179,8 @@ in
       # shell would split a pair at a space.
       for entry in ${lib.concatMapStringsSep ":" (name: user: "${name}:${user.home}")
         (lib.filterAttrs (name: user: user.isNormalUser) config.users.users)}; do
-        name=${entry%%:*}
-        home=${entry#*:}
+        name=''${entry%%:*}
+        home=''${entry#*:}
         if [ -d "$home" ]; then
           cp -rn /etc/skel/. "$home"/ 2>/dev/null || true
           chown -R "$name" "$home" 2>/dev/null || true
