@@ -80,6 +80,11 @@ in {
   # configuration for the other. The initial ramdisk is built with the
   # compiler-less standard environment and the ramdisk tool, exactly like the
   # upstream installation device carries them.
+  #
+  # GRUB is installed with a Perl script that reads the device map, so the
+  # live image carries the same Perl environment that the installed system
+  # will use. Without it the installation would have to fetch compiled Perl
+  # modules, which needs a compiler and therefore a network connection.
   system.extraDependencies = [
     pkgs.grub2
     (pkgs.grub2.override { efiSupport = true; })
@@ -88,6 +93,15 @@ in {
     pkgs.stdenvNoCC
     pkgs.busybox
     pkgs.jq
+    (pkgs.perl.withPackages (p: with p; [
+      FileSlurp
+      FileCopyRecursive
+      XMLLibXML
+      XMLSAX
+      XMLSAXBase
+      ListCompare
+      JSON
+    ]))
   ];
   environment.etc."ravnix/source".source = source;
   environment.etc."ravnix/live".text = "RAVNIX live installation medium\n";

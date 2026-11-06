@@ -263,7 +263,11 @@ def command(directory, mode, disk, iso=None, accel='tcg'):
             # A KMS-capable display device, so Plasma and the greeter can
             # actually start inside the virtual machine.
             '-vga','virtio',
-            '-drive',f'file={disk},format=qcow2,if=none,id=target']
+            # The installation copies ten gigabytes into the guest. A raw
+            # image without write-back flushing keeps that copy at the speed of
+            # the host disk instead of the speed of a qcow2 layer with a
+            # flush after every write.
+            '-drive',f'file={disk},format=raw,cache=unsafe,if=none,id=target']
     if mode == 'bios':
         args += ['-device','ich9-ahci,id=sata','-device','ide-hd,drive=target,bus=sata.0,serial=RAVNIXTEST']
     else:
@@ -316,10 +320,10 @@ def quiet_bash(console, live=False):
 
 def test_mode(iso, mode, out):
     with tempfile.TemporaryDirectory(prefix='ravnix-vm-') as tmp:
-        directory=Path(tmp);disk=directory/'target.qcow2'
+        directory=Path(tmp);disk=directory/'target.img'
         # The desktop closure is about 10 GiB, so the installation needs more
-        # room than the console-era image did. The image is sparse.
-        subprocess.run(['qemu-img','create','-f','qcow2',str(disk),'40G'],check=True)
+        # room than the console-era image did. The image is a sparse file.
+        subprocess.run(['qemu-img','create','-f','raw',str(disk),'40G'],check=True)
         accel=qemu_accelerator()
         print('ACCELERATOR:', accel, flush=True)
         args,serial=command(directory,mode,disk,iso,accel)

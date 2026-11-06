@@ -99,7 +99,8 @@ class InstallerGuards(unittest.TestCase):
                         'pkgs.grub2.override { efiSupport = true; }',
                         'pkgs.efibootmgr',
                         'pkgs.makeInitrdNGTool',
-                        'pkgs.stdenvNoCC']:
+                        'pkgs.stdenvNoCC',
+                        'pkgs.perl.withPackages']:
             with self.subTest(package=package):
                 self.assertIn(package, dependencies)
 
@@ -116,13 +117,36 @@ class InstallerGuards(unittest.TestCase):
             return subprocess.run(['bash', str(ROOT/'scripts/check-offline-install.sh')],
                                   capture_output=True, text=True, env=environment)
 
-    def test_a_path_that_needs_the_network_fails_the_offline_check(self):
-        plan = ('these 2 paths will be fetched (12.3 MiB download, 30.0 MiB unpacked):\n'
+    def test_a_package_that_needs_the_network_fails_the_offline_check(self):
+        # A real package in the plan means the installation depends on the
+        # network, and a broken connection to the cache would abort it.
+        plan = ('these 2 paths will be fetched (156.7 MiB download, 9.8 GiB unpacked):\n'
                 '  /nix/store/aaa-grub\n'
                 '  /nix/store/bbb-initrd\n')
         result = self.offline_check(plan)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('aaa-grub', result.stderr)
+        self.assertIn('aaa-grub', result.stdout)
+        self.assertIn('depends on', result.stderr)
+
+    def test_compiled_perl_modules_fail_the_offline_check(self):
+        # The live image carries no compiler, so a compiled Perl module
+        # cannot be rebuilt in the guest and has to come from the network.
+        plan = ('these 1 paths will be fetched (120.0 KiB download, 900.0 KiB unpacked):\n'
+                '  /nix/store/aaa-perl5.42.3-XML-SAX-1.02\n')
+        result = self.offline_check(plan)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Perl', result.stderr)
+
+    def test_small_rendered_files_pass_the_offline_check(self):
+        # The sudoers file and the scripts of the login program are rendered
+        # for every configuration, so they are tiny and nix rebuilds them
+        # locally when the download fails.
+        plan = ('these 2 paths will be fetched (40.0 KiB download, 60.0 KiB unpacked):\n'
+                '  /nix/store/aaa-sudoers\n'
+                '  /nix/store/bbb-getty\n')
+        result = self.offline_check(plan)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('aaa-sudoers', result.stdout)
 
     def test_derivations_that_are_built_locally_pass_the_offline_check(self):
         # Derivations that will be built in the guest are fine, their inputs
