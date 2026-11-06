@@ -30,6 +30,27 @@ SESSION_DEADLINE = 21600  # 6 hours
 NIX_OPTIONS = '--option fallback true --option connect-timeout 30 ' \
               '--option stalled-download-timeout 120 --option download-attempts 10'
 
+# The installation copies the desktop closure into the guest and builds the
+# configuration on top of it. The step limit is a backstop for a stalled
+# guest, the job timeout in the workflow is the outer bound.
+INSTALL_STEP = 16200  # 4.5 hours
+BUILD_STEP = 16200    # the rebuild inside the installed system
+
+
+class Phase:
+    """Report how long every step of the test took.
+
+    A failed run has to name the step that consumed the time: the store copy,
+    the build of the configuration or the health check."""
+
+    def __init__(self):
+        self.start = self.last = time.monotonic()
+
+    def mark(self, name):
+        now = time.monotonic()
+        print(f'PHASE: {name} took {int(now - self.last)}s (total {int(now - self.start)}s)', flush=True)
+        self.last = now
+
 def qemu_accelerator():
     """Hardware virtualisation makes the installation test about ten times
     faster. The runners expose /dev/kvm, but the probe keeps the test working
@@ -321,6 +342,7 @@ def quiet_bash(console, live=False):
 
 
 def test_mode(iso, mode, out):
+    phase=Phase()
     with tempfile.TemporaryDirectory(prefix='ravnix-vm-') as tmp:
         directory=Path(tmp);disk=directory/'target.img'
         # The desktop closure is about 10 GiB, so the installation needs more
@@ -331,10 +353,20 @@ def test_mode(iso, mode, out):
         args,serial=command(directory,mode,disk,iso,accel)
         with VM(args,serial,out,f'vm-{mode}-live',deadline=LIVE_DEADLINE) as console:
             quiet_bash(console,live=True)
+            phase.mark('live session ready')
+            # The store of the live image decides what the installation has to
+            # build. The numbers are cheap and say where a slow run spent its
+            # time: a store that is not registered has to be rebuilt.
+            console.run('echo "registered paths: $(nix-store --query --valid-registrations | wc -l)"\n'
+                        'echo "store paths: $(ls /nix/store | wc -l)"\n'
+                        'echo "nixpkgs source: $(ls -d /nix/store/*-source 2>/dev/null | wc -l)"','RAVNIX_STORE_INFO')
             # The live user's login shell remains Fish even when the test runs Bash as root.
             console.run(HEALTH.replace('$USER','ravnix')+'\ncommand -v ravnix-install; command -v ravnix-guide; test -f /etc/ravnix/live; sudo -u ravnix sudo -n true; nm-online -q --timeout=90', 'RAVNIX_LIVE_OK')
+            phase.mark('live health check')
             print('INSTALL:', mode, flush=True)
-            console.send("ravnix-install || printf '\\nRAVNIX_VM_FAIL\\n'\n")
+            # The serial console is part of the installation, so the test needs
+            # one installation and not two.
+            console.send("ravnix-install --kernel-params 'console=tty0 console=ttyS0,115200n8' || printf '\\nRAVNIX_VM_FAIL\\n'\n")
             device='/dev/sda' if mode=='bios' else '/dev/nvme0n1'
             for prompt,answer in [('Target whole disk:',device),('Hostname:','ravnix-test'),('Username:','tester'),('Timezone [Europe/Warsaw]:','Europe/Warsaw'),(f'Type ERASE {device} to continue:',f'ERASE {device}')]:
                 console.expect(prompt.encode(),timeout=120)
@@ -344,17 +376,21 @@ def test_mode(iso, mode, out):
             # software emulation, so the wait has to be generous. The live
             # session deadline is longer than this step, so a slow but healthy
             # installation is never cut short.
-            console.expect(b'New password:',timeout=14400)
+            console.expect(b'New password:',timeout=INSTALL_STEP)
+            phase.mark('installation and password')
             console.send(PASSWORD+'\n')
             console.expect(b'Retype new password:',timeout=60)
             console.send(PASSWORD+'\n')
             console.expect(b'Reboot now? [y/N]:',timeout=120)
             console.send('n\n')
-            # Test-only serial console, never an autologin or password bypass.
+            # The installation has to have landed on the disk: the system
+            # configuration, the store and the bootloader.
             console.run('mount '+device+'2 /mnt' if mode=='bios' else 'mount '+device+'p2 /mnt', 'RAVNIX_TARGET_MOUNTED')
             if mode=='uefi':
                 console.run('mount /dev/nvme0n1p1 /mnt/boot/efi','RAVNIX_ESP_MOUNTED')
-            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd "+NIX_OPTIONS+"; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=14400)
+            console.run('test -f /mnt/etc/nixos/host.nix; test -f /mnt/etc/nixos/hardware-configuration.nix; '
+                        'test -d /mnt/nix/store; test -d /mnt/boot/grub; sync; umount -R /mnt','RAVNIX_TARGET_INSTALLED')
+            phase.mark('installation on the disk')
             poweroff(console)
         for stage in ('installed','rebuilt'):
             args,serial=command(directory,mode,disk,accel=accel)
@@ -364,6 +400,7 @@ def test_mode(iso, mode, out):
                 console.expect(b'Password:',timeout=30)
                 console.send(PASSWORD+'\n')
                 quiet_bash(console)
+                phase.mark(f'{stage} system booted')
                 console.run(HEALTH+'''\ntest "$(hostname)" = ravnix-test
 if getent passwd ravnix; then false; fi
 for command in ravnix-install ravnix-guide nixos-install; do if command -v "$command"; then false; fi; done
@@ -386,8 +423,10 @@ grep -qE '[0-9]+[.][0-9]+' /tmp/ravnix-brave-version.txt
                 console.send(PASSWORD+'\n')
                 console.expect(b'# ',timeout=30)
                 console.run('test "$(passwd -S root | awk \'{print $2}\')" = L; visudo -cf /etc/sudoers; test -f /etc/nixos/flake.lock; test -f /etc/nixos/hardware-configuration.nix; test -f /etc/nixos/host.nix; if grep -R -E "autologin.*ravnix|NOPASSWD" /etc/sudoers /etc/sudoers.d; then false; fi; nm-online -q --timeout=90','RAVNIX_ROOT_OK')
+                phase.mark(f'{stage} system health check')
                 if stage=='installed':
-                    console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=14400)
+                    console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=BUILD_STEP)
+                    phase.mark('rebuild inside the installed system')
                 poweroff(console)
         print(f'PASS: {mode} live, desktop, text installation, login, rebuild, reboot',flush=True)
 

@@ -5,8 +5,12 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      # The pinned Nixpkgs source belongs to the live image, so the
+      # installation can evaluate the configuration without a network.
+      nixpkgsSource = nixpkgs.outPath;
       mkSystem = modules: nixpkgs.lib.nixosSystem {
         inherit system;
+        specialArgs = { inherit nixpkgsSource; };
         modules = [ ./modules/base.nix ] ++ modules;
       };
       live = mkSystem [ ./modules/live.nix ];

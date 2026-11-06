@@ -1,4 +1,4 @@
-{ config, lib, pkgs, modulesPath, ... }:
+{ config, lib, pkgs, modulesPath, nixpkgsSource, ... }:
 let
   source = lib.cleanSource ../.;
   installer = pkgs.writeShellApplication {
@@ -85,7 +85,12 @@ in {
   # live image carries the same Perl environment that the installed system
   # will use. Without it the installation would have to fetch compiled Perl
   # modules, which needs a compiler and therefore a network connection.
+  #
+  # The pinned Nixpkgs source belongs to the live image as well. The
+  # installation evaluates the configuration from the copied source tree, and
+  # without this source in the store it would have to download it first.
   system.extraDependencies = [
+    nixpkgsSource
     pkgs.grub2
     (pkgs.grub2.override { efiSupport = true; })
     pkgs.efibootmgr
