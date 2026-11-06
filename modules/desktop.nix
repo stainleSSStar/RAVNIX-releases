@@ -175,10 +175,12 @@ in
   # The ownership is therefore given back to the account.
   system.activationScripts."users-ravnix-profile" = {
     text = ''
-      # The name and the home directory are joined by a colon, because the
-      # shell would split a pair at a space.
-      for entry in ${lib.concatMapStringsSep ":" (name: user: "${name}:${user.home}")
-        (lib.filterAttrs (name: user: user.isNormalUser) config.users.users)}; do
+      # The name and the home directory are joined by a colon, and the loop
+      # splits at that colon only, so a home directory with a space stays
+      # in one piece.
+      IFS=:
+      for entry in ${lib.concatStringsSep ":" (lib.mapAttrsToList (name: user: "${name}:${user.home}")
+        (lib.filterAttrs (name: user: user.isNormalUser) config.users.users))}; do
         name=''${entry%%:*}
         home=''${entry#*:}
         if [ -d "$home" ]; then

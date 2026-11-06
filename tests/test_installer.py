@@ -87,7 +87,7 @@ class InstallerGuards(unittest.TestCase):
         # Nix reads an unescaped dollar sign as the start of its own
         # interpolation, so the expansion of the shell would be a syntax error
         # in the module. Only the interpolation of the accounts is intended.
-        rest = re.sub(r'\$\{lib\.concatMapStringsSep.*?\};', '', script, flags=re.S)
+        rest = re.sub(r'\$\{lib\.concatStringsSep.*?\};', '', script, flags=re.S)
         for match in re.finditer(r'\$\{', rest):
             self.assertEqual(rest[max(0, match.start()-2):match.start()], "''",
                              'the activation script has an unescaped interpolation')
@@ -96,7 +96,7 @@ class InstallerGuards(unittest.TestCase):
         # expects.
         script = script.replace("''${", '${')
         # Render the Nix interpolation with a single account.
-        script = re.sub(r'\$\{lib\.concatMapStringsSep.*?\};',
+        script = re.sub(r'\$\{lib\.concatStringsSep.*?\};',
                         'operator:/home/operator;', script, flags=re.S)
         with tempfile.TemporaryDirectory(prefix='ravnix-skel-') as temporary:
             root = Path(temporary)
