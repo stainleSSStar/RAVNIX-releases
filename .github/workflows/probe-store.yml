@@ -11,46 +11,54 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-      - name: Every setting
-        run: |
-          nix config show 2>&1 | grep -vE '^\s*#' | grep -vE '^\s*$'
-      - name: Format of a substituted path
+      - name: Reproduce the plan of the guest installation
         run: |
           set -e
-          p=$(nix build --no-link --print-out-paths nixpkgs#hello)
-          echo "path: $p"
-          ls -ld "$p"
-          file "$p" || true
-          stat -c 'size=%s' "$p"
-          head -c 16 "$p" | xxd | head -2
-      - name: Format of a copied path
+          rm -rf /tmp/target
+          mkdir -p /tmp/target
+          cp -R ./. /tmp/target/etc-nixos/
+          rm -rf /tmp/target/etc-nixos/.git
+          cat > /tmp/target/etc-nixos/host.nix <<'HOST'
+          { ... }: {
+            networking.hostName = "ravnix-test";
+            time.timeZone = "Europe/Warsaw";
+            users.users."tester" = {
+              isNormalUser = true;
+              extraGroups = [ "wheel" "networkmanager" "video" "render" "input" "lp" "scanner" "dialout" ];
+            };
+            boot.loader.grub = {
+              enable = true;
+              device = "/dev/sda";
+              efiSupport = false;
+              efiInstallAsRemovable = false;
+            };
+            boot.loader.efi = { canTouchEfiVariables = false; efiSysMountPoint = "/boot/efi"; };
+          }
+          HOST
+          cat > /tmp/target/etc-nixos/hardware-configuration.nix <<'HW'
+          { ... }: {
+            boot.initrd.availableKernelModules = [ "ahci" "ata_base" "ata_generic" "ata_piix" "libata" "sd_mod" "sr_mod" ];
+            boot.initrd.kernelModules = [ ];
+            boot.supportedFilesystems = [ "ext4" "vfat" ];
+            fileSystems."/" = {
+              device = "/dev/disk/by-label/RAVNIX_ROOT";
+              fsType = "ext4";
+            };
+          }
+          HW
+          cat > /tmp/target/etc-nixos/configuration.nix <<'CFG'
+          { ... }: { imports = [ ./modules/base.nix ./hardware-configuration.nix ./host.nix ]; }
+          CFG
+          echo "===== the plan of the installation ====="
+          nix build "path:/tmp/target/etc-nixos#ravnix" --dry-run 2>&1 | tail -120
+      - name: What the live image already carries
         run: |
           set -e
-          rm -rf /tmp/store-b
-          mkdir -p /tmp/store-b
-          mkdir -p /tmp/src
-          dd if=/dev/urandom of=/tmp/src/big.bin bs=1M count=200 status=none
-          p=$(nix store add-path /tmp/src)
-          echo "path: $p"
-          ls -ld "$p"; file "$p" || true
-          echo "== copying into a second store"
-          time nix --store /tmp/store-b copy --from /nix/store "$p" 2>&1 | tail -3
-          q=$(ls -d /tmp/store-b/nix/store/* | head -1)
-          echo "copied: $q"
-          ls -ld "$q"; file "$q" || true
-          stat -c 'size=%s' "$q"
-          head -c 16 "$q" | xxd | head -2
-      - name: Does a copied store stay valid
-        run: |
-          set -e
-          rm -rf /tmp/store-a /tmp/store-c
-          echo hello > /tmp/probe.txt
-          full=$(nix --store /tmp/store-a store add-file /tmp/probe.txt --name probe-copy)
-          echo "full: $full"
-          mkdir -p /tmp/store-c/nix/var/nix/db
-          cp -a /tmp/store-a/nix/store /tmp/store-c/nix/store
-          cp -a /tmp/store-a/nix/var/nix/db/. /tmp/store-c/nix/var/nix/db/
-          echo "== path-info of the copied store"
-          nix --store /tmp/store-c path-info --json "$full"
-          echo "== content of the copied path"
-          nix --store /tmp/store-c store cat "$full"
+          nix path-info -r .#nixosConfigurations.live.config.system.build.toplevel 2>/dev/null | sort > /tmp/live-closure.txt
+          echo "live closure paths: $(wc -l < /tmp/live-closure.txt)"
+          echo "===== live-only pieces ====="
+          nix path-info -r .#nixosConfigurations.live.config.system.build.toplevel 2>/dev/null | sed -E 's#/nix/store/[a-z0-9]{32}-##' | grep -iE 'linux|perl|kernel|grub' | head -20
+          echo "===== is the kernel in the live closure? ====="
+          nix path-info -r .#nixosConfigurations.live.config.system.build.toplevel 2>/dev/null | grep -E '\-linux-[0-9]' | head -5
+          echo "===== is GRUB's perl environment in the live closure? ====="
+          nix path-info -r .#nixosConfigurations.live.config.system.build.toplevel 2>/dev/null | grep -iE 'perl' | head -10
