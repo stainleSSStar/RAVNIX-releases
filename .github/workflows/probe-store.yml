@@ -50,26 +50,29 @@ jobs:
           { ... }: { imports = [ ./modules/base.nix ./hardware-configuration.nix ./host.nix ]; }
           CFG
           target=$(nix eval --raw "path:/tmp/target/etc-nixos#nixosConfigurations.ravnix.config.system.build.toplevel.drvPath")
-          echo "target toplevel: $target"
           live=$(nix eval --raw .#nixosConfigurations.live.config.system.build.toplevel.drvPath)
-          echo "live toplevel: $live"
-          nix-store --query --requisites "$target" | sort -u > /tmp/target-req.txt
-          nix-store --query --requisites "$live" | sort -u > /tmp/live-req.txt
-          echo "target requisites: $(wc -l < /tmp/target-req.txt)"
-          echo "live requisites: $(wc -l < /tmp/live-req.txt)"
-          echo "===== what the guest has to build that the live image does not carry ====="
-          comm -23 /tmp/target-req.txt /tmp/live-req.txt > /tmp/guest-builds.txt
-          echo "count: $(wc -l < /tmp/guest-builds.txt)"
-          sed -E 's#/nix/store/[a-z0-9]{32}-##' /tmp/guest-builds.txt | grep -v '\.drv$' | head -40
-          echo "===== sources those builds would download ====="
-          while read -r drv; do
-            nix derivation show "$drv" 2>/dev/null || true
-          done < /tmp/guest-builds.txt | jq -r 'select(. != null) | .inputSources // [] | .[]' | sort -u > /tmp/guest-sources.txt
-          echo "sources: $(wc -l < /tmp/guest-sources.txt)"
-          comm -23 /tmp/guest-sources.txt /tmp/live-req.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -30
-          echo "===== is the kernel in the live image? ====="
-          grep -E '\-linux-[0-9]' /tmp/live-req.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -5
-          echo "===== perl in the live image ====="
-          grep -iE 'perl' /tmp/live-req.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -10
-          echo "===== grub in the live image ====="
-          grep -iE 'grub' /tmp/live-req.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -10
+          echo "target: $target"
+          echo "live:   $live"
+          for name in target live; do
+            nix-store --query --requisites "$(eval echo \$$name)" | while read -r p; do
+              nix-store --query --outputs "$p" 2>/dev/null || echo "$p"
+            done | sort -u > "/tmp/$name-out.txt"
+            echo "$name outputs: $(wc -l < /tmp/$name-out.txt)"
+          done
+          echo "===== outputs the guest must build that the live image does not carry ====="
+          comm -23 /tmp/target-out.txt /tmp/live-out.txt > /tmp/missing.txt
+          echo "count: $(wc -l < /tmp/missing.txt)"
+          sed -E 's#/nix/store/[a-z0-9]{32}-##' /tmp/missing.txt | head -70
+          echo "===== sources those outputs need ====="
+          while read -r p; do
+            drv=$(nix-store --query --deriver "$p" 2>/dev/null || true)
+            [ -n "$drv" ] && nix derivation show "$drv" 2>/dev/null || true
+          done < /tmp/missing.txt | jq -r 'select(. != null) | .inputSources // [] | .[]' | sort -u > /tmp/missing-sources.txt
+          echo "sources: $(wc -l < /tmp/missing-sources.txt)"
+          sed -E 's#/nix/store/[a-z0-9]{32}-##' /tmp/missing-sources.txt | head -20
+          echo "===== is the kernel output in the live image? ====="
+          grep -E '\-linux-[0-9]' /tmp/live-out.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -5
+          echo "===== perl outputs in the live image ====="
+          grep -iE 'perl' /tmp/live-out.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -12
+          echo "===== grub outputs in the live image ====="
+          grep -iE 'grub' /tmp/live-out.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -12
