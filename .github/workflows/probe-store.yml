@@ -1,0 +1,66 @@
+name: Probe store format
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Settings that mention compression
+        run: |
+          echo "== nix version"; nix --version
+          echo "== config show"; nix config show 2>&1 | grep -i -E 'compress|nar' || true
+          echo "== compress-algo"; nix config show compress-algo 2>&1 | head -3 || true
+          echo "== compression"; nix config show compression 2>&1 | head -3 || true
+      - name: Format of a written store path
+        run: |
+          echo hello > /tmp/probe.txt
+          p=$(nix store add-file /tmp/probe.txt --name probe-default)
+          echo "path: $p"
+          ls -la "$p"
+          file "$p" || true
+          head -c 16 "$p" | xxd | head -2
+      - name: Format with compress-algo = zstd
+        run: |
+          echo hello > /tmp/probe.txt
+          p=$(NIX_CONFIG='compress-algo = zstd' nix store add-file /tmp/probe.txt --name probe-zstd)
+          echo "path: $p"
+          ls -la "$p"
+          head -c 16 "$p" | xxd | head -2
+          NIX_CONFIG='compress-algo = zstd' nix config show 2>&1 | grep -i compress || true
+      - name: Format with compression = zstd
+        run: |
+          echo hello > /tmp/probe.txt
+          p=$(NIX_CONFIG='compression = zstd' nix store add-file /tmp/probe.txt --name probe-zstd2)
+          echo "path: $p"
+          ls -la "$p"
+          head -c 16 "$p" | xxd | head -2
+      - name: Does a copied store stay valid
+        run: |
+          set -e
+          rm -rf /tmp/store-a /tmp/store-b
+          echo hello > /tmp/probe.txt
+          nix --store /tmp/store-a store add-file /tmp/probe.txt --name probe-copy
+          echo "== layout of the store"
+          find /tmp/store-a -maxdepth 4 | head -20
+          echo "== copy the store and its database"
+          mkdir -p /tmp/store-b/nix/var/nix/db
+          cp -a /tmp/store-a/nix/store /tmp/store-b/nix/store
+          cp -a /tmp/store-a/nix/var/nix/db/. /tmp/store-b/nix/var/nix/db/
+          echo "== is the copied path still valid?"
+          nix --store /tmp/store-b path-info --json probe-copy | head -c 400
+          echo
+          echo "== and can the copy be read?"
+          nix --store /tmp/store-b store cat probe-copy
+      - name: How long does a store write take
+        run: |
+          dd if=/dev/urandom of=/tmp/big.bin bs=1M count=200 status=none
+          for algo in xz zstd; do
+            echo "== $algo"
+            /usr/bin/time -f "%e s" env NIX_CONFIG="compress-algo = $algo" \
+              nix store add-file /tmp/big.bin --name "probe-big-$algo" 2>&1 | tail -2
+          done
