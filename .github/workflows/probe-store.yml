@@ -49,20 +49,27 @@ jobs:
           cat > /tmp/target/etc-nixos/configuration.nix <<'CFG'
           { ... }: { imports = [ ./modules/base.nix ./hardware-configuration.nix ./host.nix ]; }
           CFG
-          echo "===== the plan of the installation ====="
-          nix build "path:/tmp/target/etc-nixos#nixosConfigurations.ravnix" --dry-run 2>&1 | tee /tmp/plan.txt | tail -60
-      - name: What the live image carries
-        run: |
-          set -e
+          target=$(nix eval --raw "path:/tmp/target/etc-nixos#nixosConfigurations.ravnix.config.system.build.toplevel.drvPath")
+          echo "target toplevel: $target"
           live=$(nix eval --raw .#nixosConfigurations.live.config.system.build.toplevel.drvPath)
-          echo "live toplevel derivation: $live"
-          nix derivation show --recursive "$live" 2>/dev/null | jq -r 'to_entries[].value.outputs | keys[]' | sort -u > /tmp/live-outputs.txt
-          echo "live closure outputs: $(wc -l < /tmp/live-outputs.txt)"
-          nix derivation show --recursive "$live" 2>/dev/null | jq -r 'keys[]' | sort -u > /tmp/live-drvs.txt
-          echo "live closure derivations: $(wc -l < /tmp/live-drvs.txt)"
-          echo "===== derivations the installation builds that the live image does not carry ====="
-          awk '/derivations will be built/ { collect = 1; next } collect && /^  \/nix\/store\// { print; next } collect { collect = 0 }' /tmp/plan.txt | sort -u > /tmp/target-drvs.txt
-          echo "derivations to build: $(wc -l < /tmp/target-drvs.txt)"
-          comm -23 /tmp/target-drvs.txt /tmp/live-drvs.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -60
-          echo "===== count ====="
-          comm -23 /tmp/target-drvs.txt /tmp/live-drvs.txt | wc -l
+          echo "live toplevel: $live"
+          nix-store --query --requisites "$target" | sort -u > /tmp/target-req.txt
+          nix-store --query --requisites "$live" | sort -u > /tmp/live-req.txt
+          echo "target requisites: $(wc -l < /tmp/target-req.txt)"
+          echo "live requisites: $(wc -l < /tmp/live-req.txt)"
+          echo "===== what the guest has to build that the live image does not carry ====="
+          comm -23 /tmp/target-req.txt /tmp/live-req.txt > /tmp/guest-builds.txt
+          echo "count: $(wc -l < /tmp/guest-builds.txt)"
+          sed -E 's#/nix/store/[a-z0-9]{32}-##' /tmp/guest-builds.txt | grep -v '\.drv$' | head -40
+          echo "===== sources those builds would download ====="
+          while read -r drv; do
+            nix derivation show "$drv" 2>/dev/null || true
+          done < /tmp/guest-builds.txt | jq -r 'select(. != null) | .inputSources // [] | .[]' | sort -u > /tmp/guest-sources.txt
+          echo "sources: $(wc -l < /tmp/guest-sources.txt)"
+          comm -23 /tmp/guest-sources.txt /tmp/live-req.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -30
+          echo "===== is the kernel in the live image? ====="
+          grep -E '\-linux-[0-9]' /tmp/live-req.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -5
+          echo "===== perl in the live image ====="
+          grep -iE 'perl' /tmp/live-req.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -10
+          echo "===== grub in the live image ====="
+          grep -iE 'grub' /tmp/live-req.txt | sed -E 's#/nix/store/[a-z0-9]{32}-##' | head -10
