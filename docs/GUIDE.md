@@ -81,6 +81,13 @@ partitions on that disk will be erased.** Do not choose the live USB.
 Mounted disks, active swap, read-only disks and active LVM/RAID/encryption
 mappings are rejected. A dedicated disk of at least 16 GiB is required.
 
+For a headless machine, add the parameters of the kernel command line, for
+example a serial console:
+
+```sh
+sudo ravnix-install --kernel-params "console=tty0 console=ttyS0,115200n8"
+```
+
 UEFI: GPT, 512 MiB FAT32 ESP mounted at `/boot/efi`, remaining space ext4.
 BIOS: GPT, 2 MiB BIOS boot partition, remaining space ext4.
 GRUB uses removable-media fallback for UEFI without modifying firmware NVRAM.

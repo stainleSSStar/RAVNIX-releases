@@ -150,58 +150,112 @@ class InstallerGuards(unittest.TestCase):
             with self.subTest(package=package):
                 self.assertIn(package, dependencies)
 
-    def offline_check(self, plan):
-        # The check runs against a fake nix that prints a plan, so the rule is
-        # exercised without a Nix installation.
-        with tempfile.TemporaryDirectory(prefix='ravnix-offline-') as temporary:
-            bindir = Path(temporary)/'bin'
-            bindir.mkdir()
-            fake = bindir/'nix'
-            fake.write_text('#!/bin/sh\ncat <<\'EOF\'\n' + plan + '\nEOF\n')
-            fake.chmod(0o755)
-            environment = dict(os.environ, PATH=str(bindir)+':'+os.environ['PATH'])
-            return subprocess.run(['bash', str(ROOT/'scripts/check-offline-install.sh')],
-                                  capture_output=True, text=True, env=environment)
+    def plan_check(self, live, target, toplevel='/nix/store/zzz-toplevel.drv'):
+        # The check reads the derivations of the live image and of the
+        # installation, so the rule is exercised without a Nix installation.
+        with tempfile.TemporaryDirectory(prefix='ravnix-plan-') as temporary:
+            live_file = Path(temporary)/'live.json'
+            target_file = Path(temporary)/'target.json'
+            live_file.write_text(json.dumps(live))
+            target_file.write_text(json.dumps(target))
+            return subprocess.run(
+                ['python3', str(ROOT/'scripts/check-install-plan.py'),
+                 str(live_file), str(target_file), toplevel],
+                capture_output=True, text=True)
 
-    def test_a_package_that_needs_the_network_fails_the_offline_check(self):
-        # A real package in the plan means the installation depends on the
-        # network, and a broken connection to the cache would abort it.
-        plan = ('these 2 paths will be fetched (156.7 MiB download, 9.8 GiB unpacked):\n'
-                '  /nix/store/aaa-grub\n'
-                '  /nix/store/bbb-initrd\n')
-        result = self.offline_check(plan)
+    def test_a_package_source_fails_the_plan_check(self):
+        # A package source that the live image does not carry means the
+        # installation would have to download it and compile it.
+        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
+        target = {
+            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
+            '/nix/store/kernel.drv': {
+                'outputs': {'out': '/nix/store/kernel'},
+                'inputSources': ['/nix/store/linux-6.18.56.tar.xz'],
+            },
+        }
+        result = self.plan_check(live, target)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('aaa-grub', result.stdout)
+        self.assertIn('linux-6.18.56.tar.xz', result.stdout)
         self.assertIn('depends on', result.stderr)
 
-    def test_compiled_perl_modules_fail_the_offline_check(self):
-        # The live image carries no compiler, so a compiled Perl module
-        # cannot be rebuilt in the guest and has to come from the network.
-        plan = ('these 1 paths will be fetched (120.0 KiB download, 900.0 KiB unpacked):\n'
-                '  /nix/store/aaa-perl5.42.3-XML-SAX-1.02\n')
-        result = self.offline_check(plan)
+    def test_a_source_tree_fails_the_plan_check(self):
+        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
+        target = {
+            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
+            '/nix/store/package.drv': {
+                'outputs': {'out': '/nix/store/package'},
+                'inputSources': ['/nix/store/aaa-source'],
+            },
+        }
+        result = self.plan_check(live, target)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('Perl', result.stderr)
+        self.assertIn('aaa-source', result.stdout)
 
-    def test_small_rendered_files_pass_the_offline_check(self):
-        # The sudoers file and the scripts of the login program are rendered
-        # for every configuration, so they are tiny and nix rebuilds them
-        # locally when the download fails.
-        plan = ('these 2 paths will be fetched (40.0 KiB download, 60.0 KiB unpacked):\n'
-                '  /nix/store/aaa-sudoers\n'
-                '  /nix/store/bbb-getty\n')
-        result = self.offline_check(plan)
+    def test_small_rendered_files_pass_the_plan_check(self):
+        # The sudoers file and the systemd units are rendered for every
+        # configuration, so they are built from small scripts of the Nixpkgs
+        # source tree, which the live image carries.
+        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
+        target = {
+            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
+            '/nix/store/units.drv': {
+                'outputs': {'out': '/nix/store/units'},
+                'inputSources': ['/nix/store/bbb-nixos-units.pl'],
+            },
+        }
+        result = self.plan_check(live, target)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('aaa-sudoers', result.stdout)
+        self.assertIn('nothing has to be downloaded', result.stdout)
 
-    def test_derivations_that_are_built_locally_pass_the_offline_check(self):
+    def test_derivations_that_are_built_locally_pass_the_plan_check(self):
         # Derivations that will be built in the guest are fine, their inputs
         # are in the live image.
-        plan = ('these 2 derivations will be built:\n'
-                '  /nix/store/aaa-initrd-linux.drv\n'
-                '  /nix/store/bbb-system.drv\n')
-        result = self.offline_check(plan)
+        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
+        target = {
+            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
+            '/nix/store/initrd.drv': {'outputs': {'out': '/nix/store/initrd'}},
+            '/nix/store/system.drv': {'outputs': {'out': '/nix/store/system'}},
+        }
+        result = self.plan_check(live, target)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # The system profile and the initial ramdisk are built in the guest.
+        self.assertIn('3 paths', result.stdout)
+
+    def test_the_configuration_source_is_never_a_download(self):
+        # The configuration is copied into the new system and read from
+        # there, so its source never comes from the network.
+        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
+        target = {
+            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
+            '/nix/store/system.drv': {
+                'outputs': {'out': '/nix/store/system'},
+                'inputSources': ['/nix/store/config-source'],
+            },
+        }
+        result = self.plan_check(live, target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_kernel_parameters_are_parsed_and_checked(self):
+        # The serial console of the test needs the parameters, and they must
+        # not be able to smuggle anything into the generated configuration.
+        ok = self.shell('parse_arguments --kernel-params "console=ttyS0,115200n8"; echo "$kernel_params"')
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(ok.stdout.strip(), 'console=ttyS0,115200n8')
+        equal = self.shell('parse_arguments --kernel-params=quiet; echo "$kernel_params"')
+        self.assertEqual(equal.returncode, 0, equal.stderr)
+        self.assertEqual(equal.stdout.strip(), 'quiet')
+        for bad in ['a"b', "a'b", 'a;rm -rf /', 'a$(id)', 'a`id`', 'a|b']:
+            with self.subTest(parameter=bad):
+                result = self.shell('parse_arguments --kernel-params '+shlex.quote(bad))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('unsupported characters', result.stderr)
+        unknown = self.shell('parse_arguments --unknown')
+        self.assertNotEqual(unknown.returncode, 0)
+        self.assertIn('Unknown option', unknown.stderr)
+        missing = self.shell('parse_arguments --kernel-params')
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn('Missing value', missing.stderr)
 
     @unittest.skipUnless(shutil.which('nix-instantiate'), 'Nix evaluator runs in Linux CI')
     def test_generated_host_evaluates_with_keyword_usernames(self):

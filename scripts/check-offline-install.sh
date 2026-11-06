@@ -22,9 +22,6 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# The rendered files are a few kilobytes; anything larger is a package.
-limit=$((1024 * 1024))
-
 mkdir -p "$tmp/etc-nixos"
 cp -R "$root/." "$tmp/etc-nixos/"
 rm -rf "$tmp/etc-nixos/.git"
@@ -82,7 +79,7 @@ HOST
   nix derivation show --recursive "$target" > "$tmp/target.json"
   live=$(nix eval --raw .#nixosConfigurations.live.config.system.build.toplevel.drvPath)
   nix derivation show --recursive "$live" > "$tmp/live.json"
-  if ! python3 "$root/scripts/check-install-plan.py" "$tmp/live.json" "$tmp/target.json" "$target" "$limit"; then
+  if ! python3 "$root/scripts/check-install-plan.py" "$tmp/live.json" "$tmp/target.json" "$target"; then
     echo "ERROR: the $mode installation depends on sources that the live image does not carry." >&2
     status=1
   fi

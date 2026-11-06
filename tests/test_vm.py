@@ -37,6 +37,28 @@ class VMProtocol(unittest.TestCase):
         self.assertGreater(vm.LIVE_DEADLINE,14400)
         self.assertGreater(vm.SESSION_DEADLINE,14400)
 
+    def test_the_installation_step_outlasts_the_job_budget(self):
+        # The installation copies ten gigabytes into the guest and builds the
+        # configuration on top of it. The step limit has to be longer than
+        # the copy and shorter than the job timeout of the workflow.
+        self.assertGreaterEqual(vm.INSTALL_STEP, 14400)
+        self.assertLessEqual(vm.INSTALL_STEP, 21600)
+        self.assertGreater(vm.LIVE_DEADLINE, vm.INSTALL_STEP)
+
+    def test_the_test_installs_once_with_a_serial_console(self):
+        # A second installation would evaluate the whole desktop system again,
+        # which takes a quarter of an hour on the emulated processor.
+        source = (Path(__file__).resolve().parents[1]/'scripts/vm-test.py').read_text()
+        self.assertEqual(source.count('console.send("ravnix-install'), 1)
+        self.assertIn('--kernel-params', source)
+        self.assertNotIn('nixos-install --root /mnt --flake', source)
+
+    def test_every_step_reports_its_duration(self):
+        # A run that fails has to name the step that used the time.
+        source = (Path(__file__).resolve().parents[1]/'scripts/vm-test.py').read_text()
+        self.assertIn("phase.mark('installation and password')", source)
+        self.assertIn('class Phase:', source)
+
     def test_the_live_session_gets_the_long_deadline(self):
         manager=Mock()
         manager.__enter__=Mock(return_value=Mock())

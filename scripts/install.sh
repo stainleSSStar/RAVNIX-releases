@@ -8,6 +8,25 @@ validate_username() {
  [[ $1 =~ ^[a-z_][a-z0-9_-]{0,31}$ && $1 != root && $1 != ravnix && $1 != nixos ]] || fail 'Invalid or reserved username.'
  ! getent passwd "$1" >/dev/null || fail 'Username already exists; choose another.'
 }
+parse_arguments() {
+ kernel_params=''
+ while (($# > 0)); do
+  case $1 in
+   --kernel-params)
+    (($# >= 2)) || fail 'Missing value for --kernel-params.'
+    kernel_params=$2
+    shift 2
+    ;;
+   --kernel-params=*)
+    kernel_params=${1#--kernel-params=}
+    shift
+    ;;
+   *) fail 'Unknown option. Use --help.';;
+  esac
+ done
+ # The parameters end up in a Nix string, so only plain characters are allowed.
+ [[ -z $kernel_params || $kernel_params =~ ^[A-Za-z0-9=,.:/+@%_-]+(\ [A-Za-z0-9=,.:/+@%_-]+)*$ ]] || fail 'Kernel parameters contain unsupported characters.'
+}
 validate_disk() {
  local disk=$1 mounts types read_only size name holders
  [[ -b $disk ]] || fail 'Select a block device.'
@@ -40,7 +59,6 @@ unmount_target() {
  fail 'Cannot unmount /mnt. Inspect remaining mounts before rebooting; no forced unmount was attempted.'
 }
 main() {
- local kernel_params=''
  if [[ ${1:-} == --help || ${1:-} == -h ]]; then
   echo 'Usage: sudo ravnix-install [--kernel-params "<parameters>"]'
   echo 'Text installer: dedicated whole disk, GPT/ext4, BIOS or UEFI; internet; 16 GiB minimum.'
@@ -48,22 +66,7 @@ main() {
   echo 'Extra kernel parameters, for example "console=ttyS0,115200n8" for a serial console.'
   return
  fi
- while (($# > 0)); do
-  case $1 in
-   --kernel-params)
-    (($# >= 2)) || fail 'Missing value for --kernel-params.'
-    kernel_params=$2
-    shift 2
-    ;;
-   --kernel-params=*)
-    kernel_params=${1#--kernel-params=}
-    shift
-    ;;
-   *) fail 'Unknown option. Use --help.';;
-  esac
- done
- # The parameters end up in a Nix string, so only plain characters are allowed.
- [[ -z $kernel_params || $kernel_params =~ ^[A-Za-z0-9=,.:/+@%_-]+(\ [A-Za-z0-9=,.:/+@%_-]+)*$ ]] || fail 'Kernel parameters contain unsupported characters.'
+ parse_arguments "$@"
  [[ $EUID == 0 ]] || fail 'Run sudo ravnix-install.'
  [[ -t 0 && -t 1 ]] || fail 'Interactive terminal required.'
  [[ -f /etc/ravnix/live && -f /etc/ravnix/source/flake.lock ]] || fail 'Run from the RAVNIX live ISO.'
@@ -147,7 +150,7 @@ main() {
     efiInstallAsRemovable = $(if [[ $mode == uefi ]]; then echo true; else echo false; fi);
   };
   boot.loader.efi = { canTouchEfiVariables = false; efiSysMountPoint = "/boot/efi"; };
-$(if [[ -n $kernel_params ]]; then printf '  boot.kernelParams = [ "%s" ];\n' "$kernel_params"; fi)}
+$(if [[ -n ${kernel_params:-} ]]; then printf '  boot.kernelParams = [ "%s" ];\n' "$kernel_params"; fi)}
 HOST
  # Flakes use host.nix + hardware-configuration.nix. The upstream channel-style
  # configuration is not used; replace it with an equivalent import for clarity.

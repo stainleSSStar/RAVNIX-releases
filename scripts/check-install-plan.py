@@ -5,20 +5,23 @@ The live image carries the whole desktop closure, so an installation mostly
 copies it. The paths that the live image does not carry are the ones the
 installation has to build itself: configuration artefacts such as rendered
 files, systemd units, the initial ramdisk or the system profile. Their inputs
-are small scripts, so nix rebuilds them locally in a few minutes.
+are small scripts that come from the Nixpkgs source, so nix rebuilds them
+locally in a few minutes.
 
-A path that needs a source the live image does not carry is a package. The
-installation would have to download that source and compile it, which needs a
-network connection and a compiler, and which takes hours on a slow machine.
-This script reports those sources and fails when there are any.
+A source that the live image does not carry and that is a package source is a
+problem. The installation would have to download it and compile it, which
+needs a network connection and a compiler, and which takes hours on a slow
+machine. This script reports those sources and fails when there are any.
 
-Usage: check-install-plan.py LIVE.json TARGET.json TOPLEVEL.drv [LIMIT]
+Usage: check-install-plan.py LIVE.json TARGET.json TOPLEVEL.drv
 """
 import json
 import sys
-import urllib.request
 
-CACHE = 'https://cache.nixos.org'
+# Sources of packages: a source tree, a release archive or a single file that
+# was fetched from a repository. Everything else is a file of the Nixpkgs
+# source tree, such as the script that renders a systemd unit.
+ARCHIVES = ('.tar', '.tgz', '.tar.gz', '.tar.xz', '.tar.bz2', '.zip', '.xz', '.gz', '.bz2')
 
 
 def load(path):
@@ -38,27 +41,18 @@ def paths_of(derivations):
     return paths
 
 
-def download_size(path):
-    """The size of a path in the binary cache, or None when it is unknown."""
+def is_package_source(path):
+    """True when the path is a fetched source tree or a release archive."""
     name = path.rsplit('/', 1)[-1]
-    digest = name.split('-', 1)[0]
-    if len(digest) != 32:
-        return None
-    try:
-        with urllib.request.urlopen(f'{CACHE}/{digest}.narinfo', timeout=15) as response:
-            for line in response.read().decode('utf-8', 'replace').splitlines():
-                if line.startswith('FileSize:'):
-                    return int(line.split(':', 1)[1].strip())
-    except Exception:
-        return None
-    return None
+    if name.endswith('-source'):
+        return True
+    return any(name.endswith(archive) for archive in ARCHIVES)
 
 
 def main():
     live = load(sys.argv[1])
     target = load(sys.argv[2])
     toplevel = sys.argv[3]
-    limit = int(sys.argv[4]) if len(sys.argv) > 3 else 1024 * 1024
 
     live_paths = paths_of(live)
 
@@ -77,7 +71,9 @@ def main():
     for name in missing:
         info = target.get(name) or {}
         for source in (info.get('inputSources') or []):
-            if source not in live_paths and source not in configuration:
+            if source in live_paths or source in configuration:
+                continue
+            if is_package_source(source):
                 sources.add(source)
 
     if not sources:
@@ -85,18 +81,11 @@ def main():
         return 0
 
     print('Sources the installation would have to download:')
-    total = 0
     for source in sorted(sources):
-        size = download_size(source)
-        total += size or 0
-        print(f'  {source.rsplit("/", 1)[-1]}'
-              + (f' ({size} bytes)' if size is not None else ' (size unknown)'))
-    print(f'Total download: {total} bytes.')
-    if total > limit:
-        print(f'ERROR: the installation depends on more than {limit} bytes from the network.',
-              file=sys.stderr)
-        return 1
-    return 0
+        print(f'  {source.rsplit("/", 1)[-1]}')
+    print('ERROR: the installation depends on packages that the live image does not carry.',
+          file=sys.stderr)
+    return 1
 
 
 if __name__ == '__main__':

@@ -77,7 +77,10 @@ NixOS* desktop shortcut for the standard graphical installer. **The text
 installer erases all data on the selected disk after exact confirmation.**
 The installation works without an internet connection, because the medium
 carries the bootloader, the ramdisk tools and the pinned Nixpkgs source; a
-dedicated 16 GiB+ disk is required. No dual boot,
+dedicated 16 GiB+ disk is required. Extra kernel parameters, such as a serial
+console for a headless machine, are passed with
+`sudo ravnix-install --kernel-params "console=tty0 console=ttyS0,115200n8"`.
+No dual boot,
 encryption/LVM/RAID or Secure Boot setup. Physical hardware still needs
 validation on the target machines.
 
