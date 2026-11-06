@@ -11,57 +11,46 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-      - name: Settings that mention compression
+      - name: Every setting
         run: |
-          echo "== nix version"; nix --version
-          echo "== config show"; nix config show 2>&1 | grep -i -E 'compress|nar' || true
-          echo "== compress-algo"; nix config show compress-algo 2>&1 | head -3 || true
-          echo "== compression"; nix config show compression 2>&1 | head -3 || true
-      - name: Format of a written store path
+          nix config show 2>&1 | grep -vE '^\s*#' | grep -vE '^\s*$'
+      - name: Format of a substituted path
         run: |
-          echo hello > /tmp/probe.txt
-          p=$(nix store add-file /tmp/probe.txt --name probe-default)
+          set -e
+          p=$(nix build --no-link --print-out-paths nixpkgs#hello)
           echo "path: $p"
-          ls -la "$p"
+          ls -ld "$p"
           file "$p" || true
+          stat -c 'size=%s' "$p"
           head -c 16 "$p" | xxd | head -2
-      - name: Format with compress-algo = zstd
+      - name: Format of a copied path
         run: |
-          echo hello > /tmp/probe.txt
-          p=$(NIX_CONFIG='compress-algo = zstd' nix store add-file /tmp/probe.txt --name probe-zstd)
+          set -e
+          rm -rf /tmp/store-b
+          mkdir -p /tmp/store-b
+          mkdir -p /tmp/src
+          dd if=/dev/urandom of=/tmp/src/big.bin bs=1M count=200 status=none
+          p=$(nix store add-path /tmp/src)
           echo "path: $p"
-          ls -la "$p"
-          head -c 16 "$p" | xxd | head -2
-          NIX_CONFIG='compress-algo = zstd' nix config show 2>&1 | grep -i compress || true
-      - name: Format with compression = zstd
-        run: |
-          echo hello > /tmp/probe.txt
-          p=$(NIX_CONFIG='compression = zstd' nix store add-file /tmp/probe.txt --name probe-zstd2)
-          echo "path: $p"
-          ls -la "$p"
-          head -c 16 "$p" | xxd | head -2
+          ls -ld "$p"; file "$p" || true
+          echo "== copying into a second store"
+          time nix --store /tmp/store-b copy --from /nix/store "$p" 2>&1 | tail -3
+          q=$(ls -d /tmp/store-b/nix/store/* | head -1)
+          echo "copied: $q"
+          ls -ld "$q"; file "$q" || true
+          stat -c 'size=%s' "$q"
+          head -c 16 "$q" | xxd | head -2
       - name: Does a copied store stay valid
         run: |
           set -e
-          rm -rf /tmp/store-a /tmp/store-b
+          rm -rf /tmp/store-a /tmp/store-c
           echo hello > /tmp/probe.txt
-          nix --store /tmp/store-a store add-file /tmp/probe.txt --name probe-copy
-          echo "== layout of the store"
-          find /tmp/store-a -maxdepth 4 | head -20
-          echo "== copy the store and its database"
-          mkdir -p /tmp/store-b/nix/var/nix/db
-          cp -a /tmp/store-a/nix/store /tmp/store-b/nix/store
-          cp -a /tmp/store-a/nix/var/nix/db/. /tmp/store-b/nix/var/nix/db/
-          echo "== is the copied path still valid?"
-          nix --store /tmp/store-b path-info --json probe-copy | head -c 400
-          echo
-          echo "== and can the copy be read?"
-          nix --store /tmp/store-b store cat probe-copy
-      - name: How long does a store write take
-        run: |
-          dd if=/dev/urandom of=/tmp/big.bin bs=1M count=200 status=none
-          for algo in xz zstd; do
-            echo "== $algo"
-            /usr/bin/time -f "%e s" env NIX_CONFIG="compress-algo = $algo" \
-              nix store add-file /tmp/big.bin --name "probe-big-$algo" 2>&1 | tail -2
-          done
+          full=$(nix --store /tmp/store-a store add-file /tmp/probe.txt --name probe-copy)
+          echo "full: $full"
+          mkdir -p /tmp/store-c/nix/var/nix/db
+          cp -a /tmp/store-a/nix/store /tmp/store-c/nix/store
+          cp -a /tmp/store-a/nix/var/nix/db/. /tmp/store-c/nix/var/nix/db/
+          echo "== path-info of the copied store"
+          nix --store /tmp/store-c path-info --json "$full"
+          echo "== content of the copied path"
+          nix --store /tmp/store-c store cat "$full"
