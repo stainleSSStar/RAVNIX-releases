@@ -14,6 +14,22 @@ import time
 
 PASSWORD = 'ravnix-test-password'
 
+# The console carries an absolute deadline for the whole session, so it has to
+# be longer than the longest single step of the test. The live session copies
+# the whole desktop closure into the guest, which takes hours under software
+# emulation: a three hour session deadline aborted installations that were
+# still making progress. The deadline is only a backstop, the timeout of each
+# single expectation is what normally ends a step, and the job timeout in the
+# workflow is the outer bound.
+LIVE_DEADLINE = 28800     # 8 hours
+SESSION_DEADLINE = 21600  # 6 hours
+
+# Nix has to survive a broken TLS connection to the binary cache. The default
+# of five attempts per file was not enough when the cache dropped the
+# connection repeatedly.
+NIX_OPTIONS = '--option fallback true --option connect-timeout 30 ' \
+              '--option stalled-download-timeout 120 --option download-attempts 10'
+
 def qemu_accelerator():
     """Hardware virtualisation makes the installation test about ten times
     faster. The runners expose /dev/kvm, but the probe keeps the test working
@@ -37,10 +53,14 @@ class Console:
         self.terminal_buffer = b''
 
     def expect(self, pattern, timeout=900):
-        until = min(self.deadline, time.monotonic() + timeout)
+        start = time.monotonic()
+        until = min(self.deadline, start + timeout)
         while pattern not in self.data[self.cursor:]:
             if time.monotonic() > until or self.process.poll() is not None:
-                raise RuntimeError(f'Console did not receive {pattern!r}')
+                waited = int(time.monotonic() - start)
+                raise RuntimeError(
+                    f'Console did not receive {pattern!r} after {waited}s '
+                    f'(step limit {timeout}s, session limit {int(self.deadline - start)}s)')
             try:
                 chunk = self.connection.recv(65536)
             except socket.timeout:
@@ -187,8 +207,9 @@ exit "$failed"
 '''
 
 class VM:
-    def __init__(self, command, serial, out, name):
+    def __init__(self, command, serial, out, name, deadline=LIVE_DEADLINE):
         self.command, self.serial, self.out, self.name = command, serial, out, name
+        self.deadline = deadline
         self.process = self.connection = self.console = None
 
     def __enter__(self):
@@ -207,7 +228,7 @@ class VM:
                 except (FileNotFoundError, ConnectionRefusedError):
                     time.sleep(.1)
             self.connection.settimeout(1)
-            self.console = Console(self.connection, self.process, 10800)
+            self.console = Console(self.connection, self.process, self.deadline)
             return self.console
         except BaseException:
             self.__exit__(None, None, None)
@@ -302,7 +323,7 @@ def test_mode(iso, mode, out):
         accel=qemu_accelerator()
         print('ACCELERATOR:', accel, flush=True)
         args,serial=command(directory,mode,disk,iso,accel)
-        with VM(args,serial,out,f'vm-{mode}-live') as console:
+        with VM(args,serial,out,f'vm-{mode}-live',deadline=LIVE_DEADLINE) as console:
             quiet_bash(console,live=True)
             # The live user's login shell remains Fish even when the test runs Bash as root.
             console.run(HEALTH.replace('$USER','ravnix')+'\ncommand -v ravnix-install; command -v ravnix-guide; test -f /etc/ravnix/live; sudo -u ravnix sudo -n true; nm-online -q --timeout=90', 'RAVNIX_LIVE_OK')
@@ -314,9 +335,9 @@ def test_mode(iso, mode, out):
                 console.send(answer+'\n')
             print('WAIT: installation and password prompt', mode, flush=True)
             # Copying about 10 GiB into the guest store takes a long time under
-            # software emulation, so the wait has to be generous.
-            # The installation copies the whole desktop closure, which is
-            # slow under software emulation; the wait has to be generous.
+            # software emulation, so the wait has to be generous. The live
+            # session deadline is longer than this step, so a slow but healthy
+            # installation is never cut short.
             console.expect(b'New password:',timeout=14400)
             console.send(PASSWORD+'\n')
             console.expect(b'Retype new password:',timeout=60)
@@ -327,11 +348,11 @@ def test_mode(iso, mode, out):
             console.run('mount '+device+'2 /mnt' if mode=='bios' else 'mount '+device+'p2 /mnt', 'RAVNIX_TARGET_MOUNTED')
             if mode=='uefi':
                 console.run('mount /dev/nvme0n1p1 /mnt/boot/efi','RAVNIX_ESP_MOUNTED')
-            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd --option fallback true --option connect-timeout 30 --option stalled-download-timeout 120; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=14400)
+            console.run("sed -i '/networking.hostName/a\\  boot.kernelParams = [ \"console=tty0\" \"console=ttyS0,115200n8\" ];' /mnt/etc/nixos/host.nix; nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd "+NIX_OPTIONS+"; sync; umount -R /mnt",'RAVNIX_INSTALLED',timeout=14400)
             poweroff(console)
         for stage in ('installed','rebuilt'):
             args,serial=command(directory,mode,disk,accel=accel)
-            with VM(args,serial,out,f'vm-{mode}-{stage}') as console:
+            with VM(args,serial,out,f'vm-{mode}-{stage}',deadline=SESSION_DEADLINE) as console:
                 console.expect(b'login:',timeout=1800)
                 console.send('tester\n')
                 console.expect(b'Password:',timeout=30)
@@ -360,7 +381,7 @@ grep -qE '[0-9]+[.][0-9]+' /tmp/ravnix-brave-version.txt
                 console.expect(b'# ',timeout=30)
                 console.run('test "$(passwd -S root | awk \'{print $2}\')" = L; visudo -cf /etc/sudoers; test -f /etc/nixos/flake.lock; test -f /etc/nixos/hardware-configuration.nix; test -f /etc/nixos/host.nix; if grep -R -E "autologin.*ravnix|NOPASSWD" /etc/sudoers /etc/sudoers.d; then false; fi; nm-online -q --timeout=90','RAVNIX_ROOT_OK')
                 if stage=='installed':
-                    console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=10800)
+                    console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=14400)
                 poweroff(console)
         print(f'PASS: {mode} live, desktop, text installation, login, rebuild, reboot',flush=True)
 

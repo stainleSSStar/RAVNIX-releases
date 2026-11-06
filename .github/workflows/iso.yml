@@ -94,6 +94,11 @@ jobs:
           nix build .#nixosConfigurations.live.config.system.build.toplevel --no-link
           rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/nix/tarballs"
           df -h /
+          # The installation has to work without a network connection: a single
+          # broken download to the binary cache aborts it after the disk was
+          # already erased. The check runs before the image is assembled, so a
+          # missing path is reported in minutes instead of hours.
+          bash scripts/check-offline-install.sh
           nix build .#iso -L 2>&1 | tee out/build.log
           df -h /
           # A hard link avoids holding a second copy of the multi-gigabyte image.
@@ -165,7 +170,7 @@ jobs:
   bios:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 330
+    timeout-minutes: 360
     permissions:
       contents: write
     steps:
@@ -218,7 +223,7 @@ jobs:
   uefi:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 330
+    timeout-minutes: 360
     permissions:
       contents: write
     steps:

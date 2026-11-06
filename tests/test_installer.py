@@ -1,5 +1,6 @@
 """Exercise destructive-operation guards without accessing real disks."""
 from pathlib import Path
+import os
 import subprocess
 import json
 import re
@@ -74,6 +75,63 @@ class InstallerGuards(unittest.TestCase):
         command = re.search(r'nixos-install[^\n]*(?:\n\s+[^\n]*)?', source).group(0)
         self.assertIn('--option fallback true', command)
         self.assertNotIn('nixos-install', source[source.index(command)+len(command):])
+
+    def test_a_broken_cache_connection_is_retried_more_often(self):
+        # The binary cache dropped the TLS connection again and again during
+        # the test runs. The default of five attempts per file was not enough
+        # to get past it.
+        for name in ['scripts/install.sh', 'scripts/vm-test.py']:
+            source = (ROOT/name).read_text()
+            with self.subTest(script=name):
+                self.assertIn('--option download-attempts 10', source)
+
+    def test_the_live_image_carries_the_installation_dependencies(self):
+        # The installation builds the initial ramdisk and installs the
+        # bootloader inside the guest. When those paths are missing from the
+        # live image, the installation depends on the binary cache, and one
+        # broken connection to it aborts an installation that has already
+        # erased the disk.
+        live = (ROOT/'modules/live.nix').read_text()
+        block = re.search(r'system\.extraDependencies\s*=\s*\[(.*?)\];', live, re.S)
+        self.assertIsNotNone(block, 'the live image must carry the installation dependencies')
+        dependencies = block.group(1)
+        for package in ['pkgs.grub2',
+                        'pkgs.grub2.override { efiSupport = true; }',
+                        'pkgs.efibootmgr',
+                        'pkgs.makeInitrdNGTool',
+                        'pkgs.stdenvNoCC']:
+            with self.subTest(package=package):
+                self.assertIn(package, dependencies)
+
+    def offline_check(self, plan):
+        # The check runs against a fake nix that prints a plan, so the rule is
+        # exercised without a Nix installation.
+        with tempfile.TemporaryDirectory(prefix='ravnix-offline-') as temporary:
+            bindir = Path(temporary)/'bin'
+            bindir.mkdir()
+            fake = bindir/'nix'
+            fake.write_text('#!/bin/sh\ncat <<\'EOF\'\n' + plan + '\nEOF\n')
+            fake.chmod(0o755)
+            environment = dict(os.environ, PATH=str(bindir)+':'+os.environ['PATH'])
+            return subprocess.run(['bash', str(ROOT/'scripts/check-offline-install.sh')],
+                                  capture_output=True, text=True, env=environment)
+
+    def test_a_path_that_needs_the_network_fails_the_offline_check(self):
+        plan = ('these 2 paths will be fetched (12.3 MiB download, 30.0 MiB unpacked):\n'
+                '  /nix/store/aaa-grub\n'
+                '  /nix/store/bbb-initrd\n')
+        result = self.offline_check(plan)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('aaa-grub', result.stderr)
+
+    def test_derivations_that_are_built_locally_pass_the_offline_check(self):
+        # Derivations that will be built in the guest are fine, their inputs
+        # are in the live image.
+        plan = ('these 2 derivations will be built:\n'
+                '  /nix/store/aaa-initrd-linux.drv\n'
+                '  /nix/store/bbb-system.drv\n')
+        result = self.offline_check(plan)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(shutil.which('nix-instantiate'), 'Nix evaluator runs in Linux CI')
     def test_generated_host_evaluates_with_keyword_usernames(self):

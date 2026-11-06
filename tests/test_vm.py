@@ -29,6 +29,39 @@ class VMProtocol(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'QEMU exited'):
             vm.poweroff(console)
 
+    def test_the_session_deadline_outlasts_the_longest_step(self):
+        # The console carries an absolute deadline for the whole session. A
+        # three hour deadline aborted installations that were still copying the
+        # desktop closure into the guest, so it has to be longer than the
+        # longest single step of the test.
+        self.assertGreater(vm.LIVE_DEADLINE,14400)
+        self.assertGreater(vm.SESSION_DEADLINE,14400)
+
+    def test_the_live_session_gets_the_long_deadline(self):
+        manager=Mock()
+        manager.__enter__=Mock(return_value=Mock())
+        manager.__exit__=Mock(return_value=False)
+        with contextlib.redirect_stdout(io.StringIO()), \
+             patch.object(vm,'VM',return_value=manager) as session, \
+             patch.object(vm,'command',return_value=([],None)), \
+             patch.object(vm,'poweroff'), \
+             patch.object(vm.subprocess,'run'):
+            vm.test_mode(Path('unused.iso'),'bios',Path('.'))
+        deadlines=[call.kwargs.get('deadline') for call in session.call_args_list]
+        self.assertEqual(deadlines[0],vm.LIVE_DEADLINE)
+        self.assertEqual(deadlines[1:],[vm.SESSION_DEADLINE,vm.SESSION_DEADLINE])
+
+    def test_a_failed_expectation_names_both_limits(self):
+        # A failure has to say which limit was reached, otherwise a run that
+        # was cut short by the session deadline looks like a broken guest.
+        connection=Mock();connection.recv.return_value=b'noise'
+        process=Mock();process.poll.return_value=None
+        console=vm.Console(connection,process,30)
+        with self.assertRaises(RuntimeError) as failure:
+            console.expect(b'never',timeout=0)
+        self.assertIn('step limit 0s',str(failure.exception))
+        self.assertIn('session limit',str(failure.exception))
+
     def test_fragmented_fish_terminal_queries_receive_replies(self):
         connection=Mock();process=Mock()
         console=vm.Console(connection,process,30)

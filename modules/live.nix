@@ -71,6 +71,24 @@ in {
     nixos-install.enable = true;
   };
   environment.systemPackages = [ installer guide ];
+  # The installation builds the initial ramdisk and installs the bootloader
+  # inside the guest, so the live image has to carry everything the installed
+  # system needs. Without these paths the installation depends on the binary
+  # cache, and one broken connection to it aborts an installation that has
+  # already erased the disk. Both GRUB variants are included because the
+  # installer writes a BIOS configuration for one boot mode and an EFI
+  # configuration for the other. The initial ramdisk is built with the
+  # compiler-less standard environment and the ramdisk tool, exactly like the
+  # upstream installation device carries them.
+  system.extraDependencies = [
+    pkgs.grub2
+    (pkgs.grub2.override { efiSupport = true; })
+    pkgs.efibootmgr
+    pkgs.makeInitrdNGTool
+    pkgs.stdenvNoCC
+    pkgs.busybox
+    pkgs.jq
+  ];
   environment.etc."ravnix/source".source = source;
   environment.etc."ravnix/live".text = "RAVNIX live installation medium\n";
   # Generated hardware configuration replaces this on the installed system.

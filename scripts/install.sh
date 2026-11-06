@@ -141,11 +141,15 @@ CONFIG
  # The installation copies roughly ten gigabytes into the new store and needs
  # the network for the paths that are not in the live image. One interrupted
  # transfer must not abort an installation that has already erased the disk:
- # nix gets longer timeouts for a slow or flaky connection, and if a
- # substitute still cannot be fetched it builds that single path from source
- # instead of failing the whole installation.
+ # nix gets longer timeouts for a slow or flaky connection, it retries a
+ # failed download more often than the default five times, and if a substitute
+ # still cannot be fetched it builds that single path from source instead of
+ # failing the whole installation. The live image already carries the
+ # bootloader and the initial ramdisk tools, so in practice nothing has to be
+ # downloaded at all.
  nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd \
-  --option fallback true --option connect-timeout 30 --option stalled-download-timeout 120
+  --option fallback true --option connect-timeout 30 \
+  --option stalled-download-timeout 120 --option download-attempts 10
  echo "Set password for $username (required for login and sudo):"
  nixos-enter --root /mnt --command "passwd $username"
  # A successful passwd command is required before unmounting or offering reboot.
