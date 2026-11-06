@@ -39,8 +39,12 @@ enabled.
   RAVNIX* (the text installer below) and *Install NixOS* (the standard
   graphical Calamares installer).
 
-Installation needs internet access to the Nix binary cache and the pinned
-Nixpkgs source. The live session itself is offline-capable.
+Installation works without an internet connection: the live medium already
+carries the bootloader, the tools that build the initial ramdisk and the
+pinned Nixpkgs source, so everything the installation needs is on the medium
+itself. Only a few kilobytes of rendered files, such as the sudoers file,
+come from the Nix binary cache; if the cache cannot be reached, they are
+built locally instead. The live session itself is offline-capable as well.
 
 ## Appearance
 

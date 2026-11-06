@@ -75,7 +75,9 @@ Nix store path counts are not directly comparable to Arch package counts.
 Install from the booted ISO with `sudo ravnix-install`, or use the *Install
 NixOS* desktop shortcut for the standard graphical installer. **The text
 installer erases all data on the selected disk after exact confirmation.**
-Internet and a dedicated 16 GiB+ disk are required. No dual boot,
+The installation works without an internet connection, because the medium
+carries the bootloader, the ramdisk tools and the pinned Nixpkgs source; a
+dedicated 16 GiB+ disk is required. No dual boot,
 encryption/LVM/RAID or Secure Boot setup. Physical hardware still needs
 validation on the target machines.
 
