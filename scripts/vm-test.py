@@ -201,6 +201,8 @@ failed_units=$(systemctl --failed --no-legend --plain 2>/dev/null || true)
 if [ -n "$failed_units" ]; then
  echo "HEALTH CHECK FAILED: failed systemd units: $failed_units"
  failed=1
+ # The journal says why the unit failed, which is the only place that knows.
+ journalctl --no-pager -b -n 40 2>/dev/null || true
 fi
 exit "$failed"
 )

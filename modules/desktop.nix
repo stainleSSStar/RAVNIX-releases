@@ -168,12 +168,22 @@ in
   # the RAVNIX Konsole profile. The script is named so that it runs after the
   # activation script that creates the users, and existing files are kept, so
   # an account can change its own configuration.
+  #
+  # The copy runs as root, so it would leave the seeded directories owned by
+  # root. The user then cannot write its own configuration directory, the
+  # session of the user manager fails, and the shell cannot save its history.
+  # The ownership is therefore given back to the account.
   system.activationScripts."users-ravnix-profile" = {
     text = ''
-      for home in ${lib.concatStringsSep " " (lib.mapAttrsToList (name: user: user.home)
-        (lib.filterAttrs (name: user: user.isNormalUser) config.users.users))}; do
+      # The name and the home directory are joined by a colon, because the
+      # shell would split a pair at a space.
+      for entry in ${lib.concatMapStringsSep ":" (name: user: "${name}:${user.home}")
+        (lib.filterAttrs (name: user: user.isNormalUser) config.users.users)}; do
+        name=${entry%%:*}
+        home=${entry#*:}
         if [ -d "$home" ]; then
           cp -rn /etc/skel/. "$home"/ 2>/dev/null || true
+          chown -R "$name" "$home" 2>/dev/null || true
         fi
       done
     '';

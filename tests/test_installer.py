@@ -76,6 +76,41 @@ class InstallerGuards(unittest.TestCase):
         self.assertIn('--option fallback true', command)
         self.assertNotIn('nixos-install', source[source.index(command)+len(command):])
 
+    def test_the_seeded_profile_belongs_to_the_account(self):
+        # The copy of the profile runs as root and would leave the
+        # configuration directory of the account owned by root. The account
+        # then cannot write it, the session of the user manager fails and the
+        # shell cannot save its history.
+        source = (ROOT/'modules/desktop.nix').read_text()
+        script = re.search(r'system\.activationScripts\."users-ravnix-profile" = \{\n'
+                           r'    text = \'\'\n(.*?)\n    \'\';', source, re.S).group(1)
+        # Render the Nix interpolation with a single account.
+        script = re.sub(r'\$\{lib\.concatMapStringsSep.*?\};',
+                        'operator:/home/operator;', script, flags=re.S)
+        with tempfile.TemporaryDirectory(prefix='ravnix-skel-') as temporary:
+            root = Path(temporary)
+            skel = root/'skel'
+            (skel/'.config'/'fastfetch').mkdir(parents=True)
+            (skel/'.config'/'fastfetch'/'config.jsonc').write_text('{}')
+            home = root/'home'
+            home.mkdir()
+            script = script.replace('/etc/skel', str(skel)).replace('/home/operator', str(home))
+            # The test does not run as root, so the ownership change is
+            # recorded instead of performed.
+            bindir = root/'bin'
+            bindir.mkdir()
+            (bindir/'chown').write_text('#!/bin/sh\necho "CHOWN:$*" >> "%s"\n' % (root/'calls'))
+            (bindir/'chown').chmod(0o755)
+            environment = dict(os.environ, PATH=str(bindir)+':'+os.environ['PATH'])
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                                    env=environment)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((home/'.config'/'fastfetch'/'config.jsonc').is_file(),
+                            'the profile was not seeded')
+            calls = (root/'calls').read_text()
+            self.assertIn('CHOWN:-R operator %s' % home, calls,
+                          'the seeded files were not given back to the account')
+
     def test_a_broken_cache_connection_is_retried_more_often(self):
         # The binary cache dropped the TLS connection again and again during
         # the test runs. The default of five attempts per file was not enough
