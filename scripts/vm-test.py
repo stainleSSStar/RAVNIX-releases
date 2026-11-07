@@ -169,8 +169,10 @@ case "$login_shell" in
 esac
 for command in nano less curl lspci lsusb ethtool smartctl; do check command -v "$command"; done
 # Desktop stack: Plasma, the everyday console tools and the applications.
+# The graphical installer is not part of this list: it lives in the live
+# medium only, and the installed system must not carry it.
 for command in plasmashell kwin_wayland kwin_x11 startplasma-wayland konsole kate dolphin \
-                btop fastfetch mc brave-origin calamares; do
+                btop fastfetch mc brave-origin; do
  check command -v "$command"
 done
 # The graphical network manager is a Plasma applet, not a command: it ships as
@@ -446,7 +448,9 @@ def test_mode(iso, mode, out):
                         'echo "system paths: $(nix-store --query --requisites /run/current-system | wc -l)"\n'
                         'echo "nixpkgs source: $(ls -d /nix/store/*-source 2>/dev/null | wc -l)"','RAVNIX_STORE_INFO')
             # The live user's login shell remains Fish even when the test runs Bash as root.
-            console.run(HEALTH.replace('$USER','ravnix')+'\ncommand -v ravnix-install; command -v ravnix-guide; test -f /etc/ravnix/live; sudo -u ravnix sudo -n true; nm-online -q --timeout=90', 'RAVNIX_LIVE_OK')
+            # The graphical installer belongs to the live medium, so it has to be
+            # there and nowhere else.
+            console.run(HEALTH.replace('$USER','ravnix')+'\ncommand -v ravnix-install; command -v ravnix-guide; command -v calamares; test -f /etc/ravnix/live; sudo -u ravnix sudo -n true; nm-online -q --timeout=90', 'RAVNIX_LIVE_OK')
             phase.mark('live health check')
             print('INSTALL:', mode, flush=True)
             # The serial console is part of the installation, so the test needs
