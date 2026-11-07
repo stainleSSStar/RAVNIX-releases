@@ -25,8 +25,23 @@ ARCHIVES = ('.tar', '.tgz', '.tar.gz', '.tar.xz', '.tar.bz2', '.zip', '.xz', '.g
 
 
 def load(path):
+    """Read the derivations, whether nix printed one object or a stream."""
     with open(path, encoding='utf-8') as handle:
-        data = json.load(handle)
+        text = handle.read()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        data = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                part = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(part, dict):
+                data.update(part)
     return data if isinstance(data, dict) else {}
 
 
@@ -54,6 +69,10 @@ def main():
     target = load(sys.argv[2])
     toplevel = sys.argv[3]
 
+    if not live or not target:
+        print('ERROR: the derivations could not be read.', file=sys.stderr)
+        return 1
+
     live_paths = paths_of(live)
 
     # The configuration itself is copied into the new system and read from
@@ -61,6 +80,7 @@ def main():
     configuration = set((target.get(toplevel) or {}).get('inputSources') or [])
 
     missing = sorted(set(target) - set(live))
+    print(f'The live image carries {len(live)} derivations, the installation needs {len(target)}.')
     print(f'The installation builds {len(missing)} paths that the live image does not carry.')
     for name in missing[:40]:
         print(f'  {name.rsplit("/", 1)[-1]}')
