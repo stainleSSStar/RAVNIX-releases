@@ -108,6 +108,14 @@ class VMProtocol(unittest.TestCase):
         self.assertIn('parted -s "$device" set 2 bios_grub on',bios)
         self.assertIn('mkpart BIOSBOOT 513MiB 521MiB',bios)
 
+    def test_the_graphical_target_creates_its_mount_point(self):
+        # The live medium has no /mnt: the text installer creates it, and the
+        # graphical installer mounts the target at its own place. Without the
+        # directory the mount fails with "mount point does not exist".
+        script = vm.partition_script('/dev/sda', 'bios')
+        self.assertIn('mkdir -p /mnt', script)
+        self.assertLess(script.index('mkdir -p /mnt'), script.index('mount -t ext4'))
+
     def test_the_graphical_installer_belongs_to_the_live_medium_only(self):
         # The health block runs in the live session and in the installed
         # system. The graphical installer is in the live medium only, so it

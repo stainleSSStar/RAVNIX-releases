@@ -331,6 +331,7 @@ case "$device" in
   *) root="${device}3"; esp="${device}1";;
 esac
 mkfs.ext4 -F -L RAVNIX_ROOT "$root"
+mkdir -p /mnt
 mount -t ext4 "$root" /mnt
 mkfs.fat -F 32 -n RAVNIX_EFI "$esp"
 mkdir -p /mnt/boot/efi
