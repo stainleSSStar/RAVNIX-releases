@@ -108,6 +108,44 @@ class VMProtocol(unittest.TestCase):
         self.assertIn('parted -s "$device" set 2 bios_grub on',bios)
         self.assertIn('mkpart BIOSBOOT 513MiB 521MiB',bios)
 
+    def test_the_graphical_target_is_prepared_with_the_right_commands(self):
+        # The partition script runs against a real disk in the virtual machine.
+        # Here the tools are replaced by scripts that record what they are
+        # asked to do, so the whole sequence can be checked without a disk.
+        # The mount is the important part: it fails when its directory is
+        # missing, and the live medium has no /mnt.
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); bindir=root/'bin'; bindir.mkdir()
+            calls=root/'calls'
+            def fake(name, body):
+                path=bindir/name; path.write_text(body); path.chmod(0o755)
+            def record(name):
+                fake(name,'#!/bin/sh\necho "%s $*" >> %s\nexit 0\n'%(name,calls))
+            for name in ('parted','partprobe','udevadm','mkfs.ext4','mkfs.fat'):
+                record(name)
+            # The mount fails when the directory does not exist, like the real
+            # one does. The mount point is the last argument.
+            fake('mount','#!/bin/sh\n'
+                'for point; do :; done\n'
+                '[ -d "$point" ] || { echo "mount: $point: mount point does not exist." >&2; exit 32; }\n'
+                'echo "mount $*" >> %s\nexit 0\n'%calls)
+            script=vm.partition_script('/dev/sda','bios')
+            script=script.replace('/mnt',str(root/'mnt'))
+            environment={'PATH':str(bindir)+':/usr/bin:/bin'}
+            result=subprocess.run(['bash','-c',script],capture_output=True,text=True,env=environment)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            recorded=calls.read_text()
+            self.assertIn('parted -s /dev/sda mklabel gpt',recorded)
+            self.assertIn('parted -s /dev/sda mkpart ESP fat32 1MiB 513MiB',recorded)
+            self.assertIn('parted -s /dev/sda set 1 esp on',recorded)
+            self.assertIn('parted -s /dev/sda mkpart BIOSBOOT 513MiB 521MiB',recorded)
+            self.assertIn('parted -s /dev/sda set 2 bios_grub on',recorded)
+            self.assertIn('parted -s /dev/sda mkpart primary ext4 521MiB 100%',recorded)
+            self.assertIn('mkfs.ext4 -F -L RAVNIX_ROOT /dev/sda3',recorded)
+            self.assertIn('mkfs.fat -F 32 -n RAVNIX_EFI /dev/sda1',recorded)
+            self.assertIn('mount -t ext4 /dev/sda3 %s'%(root/'mnt'),recorded)
+            self.assertIn('mount -t vfat /dev/sda1 %s'%(root/'mnt'/'boot'/'efi'),recorded)
+
     def test_the_graphical_target_creates_its_mount_point(self):
         # The live medium has no /mnt: the text installer creates it, and the
         # graphical installer mounts the target at its own place. Without the
@@ -115,6 +153,22 @@ class VMProtocol(unittest.TestCase):
         script = vm.partition_script('/dev/sda', 'bios')
         self.assertIn('mkdir -p /mnt', script)
         self.assertLess(script.index('mkdir -p /mnt'), script.index('mount -t ext4'))
+
+    def test_the_graphical_installation_keeps_the_serial_console(self):
+        # The serial console is the only way into the installed system, so the
+        # graphical installation has to ask for the console parameters, the way
+        # the text installation does.
+        source = Path(vm.__file__).resolve().read_text()
+        self.assertIn("--kernel-params 'console=tty0 console=ttyS0,115200n8'", source)
+
+    def test_the_graphical_password_is_written_into_the_shadow_file(self):
+        # The graphical interface sets the password itself. The test does not
+        # drive the interface, so it does what the users module of Calamares
+        # does: a hash of the password goes into the shadow file of the target.
+        source = Path(vm.__file__).resolve().read_text()
+        self.assertIn('mkpasswd -m sha512crypt', source)
+        self.assertIn("usermod -p", source)
+        self.assertIn('nixos-enter --root /mnt --command', source)
 
     def test_the_graphical_installer_belongs_to_the_live_medium_only(self):
         # The health block runs in the live session and in the installed

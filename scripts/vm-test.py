@@ -355,14 +355,28 @@ def graphical_installation(directory, mode, disk, iso, accel, out, phase):
         phase.mark('graphical live session ready')
         console.run(partition_script(device,mode),'RAVNIX_GRAPHICAL_TARGET')
         phase.mark('graphical target prepared')
+        # The serial console is the only way into the installed system, so the
+        # installed system has to print its boot on it. The text installer asks
+        # for the parameters, the graphical one gets them from the module.
         console.send(f"ravnix-install --non-interactive --root /mnt --disk {device} "
                      "--hostname ravnix-graphical --username tester --timezone Europe/Warsaw "
+                     "--kernel-params 'console=tty0 console=ttyS0,115200n8' "
                      "|| printf '\\nRAVNIX_VM_FAIL\\n'\n")
         print('WAIT: graphical installation', mode, flush=True)
         console.expect(b'RAVNIX installation complete',timeout=INSTALL_STEP)
         phase.mark('graphical installation')
         # The graphical installer sets the password of the new account itself.
-        console.run(f"printf 'tester:{PASSWORD}\\n' | nixos-enter --root /mnt --command chpasswd; "
+        # The test does not drive the graphical interface, so it writes the
+        # hash into the account of the installed system, the way the users
+        # module of Calamares does: usermod puts the hash into the shadow
+        # file of the target. The hash is made by mkpasswd, which every NixOS
+        # system carries, and usermod comes from the shadow package, which
+        # every NixOS system carries as well.
+        console.run("hash=$(mkpasswd -m sha512crypt -S RAVNIXTEST -s <<< "+PASSWORD+")\n"
+                    'nixos-enter --root /mnt --command '
+                    '"if [ -x /nix/var/nix/profiles/system/sw/bin/usermod ]; then '
+                    '/nix/var/nix/profiles/system/sw/bin/usermod -p \'$hash\' tester; '
+                    'else usermod -p \'$hash\' tester; fi"\n'
                     'sync; umount -R /mnt','RAVNIX_GRAPHICAL_PASSWORD')
         phase.mark('graphical password set')
         poweroff(console)

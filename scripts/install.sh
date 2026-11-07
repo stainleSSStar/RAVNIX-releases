@@ -228,14 +228,22 @@ check_prepared_layout() {
   [[ $table == *bios_grub* ]] || fail "The disk has no partition for the BIOS bootloader; GRUB cannot be installed on it."
  fi
 }
+check_target_mount() {
+ # The graphical installer formats the disk and mounts it empty, so the target
+ # has no /etc yet. The mount point is what tells a prepared target from an
+ # empty directory, and a target that already holds an installation is refused.
+ local root=$1
+ [[ -d $root ]] || fail "The target $root does not exist."
+ findmnt -rn -o TARGET | grep -Eq "^${root}(/|$)" || fail "The target $root is not a mount point."
+ [[ ! -e $root/etc/NIXOS ]] || fail "The target $root already holds a NixOS installation."
+}
 automated_installation() {
  # The graphical installer has already partitioned the disk, mounted the
  # target and collected the answers. Only the installation itself is left.
  local mode=bios device
  check_live_medium
  [[ $EUID == 0 ]] || fail 'Run as root.'
- [[ -d $root/etc ]] || fail "The target $root is not mounted."
- findmnt -rn -o TARGET | grep -Eq "^${root}(/|$)" || fail "The target $root is not a mount point."
+ check_target_mount "$root"
  if [[ ! -d /sys/firmware/efi ]]; then mode=bios; else
   mode=uefi
  fi

@@ -221,6 +221,28 @@ parted() { echo "$MOCK_TABLE"; }
         self.assertNotEqual(small.returncode, 0)
         self.assertIn('smaller than 16 GiB', small.stderr)
 
+    def test_the_graphical_target_is_a_mount_point_and_not_an_installation(self):
+        # The graphical installer formats the disk and mounts it empty, so the
+        # target has no /etc yet. The installer has to accept such a target and
+        # refuse a directory that is not mounted and a target that already
+        # holds a NixOS installation.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'target'
+            target.mkdir()
+            prepared = self.shell(f'findmnt() {{ echo {target}; }}; check_target_mount {target}')
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            unmounted = self.shell(f'findmnt() {{ echo /somewhere/else; }}; check_target_mount {target}')
+            self.assertNotEqual(unmounted.returncode, 0)
+            self.assertIn('not a mount point', unmounted.stderr)
+            (target / 'etc').mkdir()
+            (target / 'etc' / 'NIXOS').write_text('')
+            installed = self.shell(f'findmnt() {{ echo {target}; }}; check_target_mount {target}')
+            self.assertNotEqual(installed.returncode, 0)
+            self.assertIn('already holds a NixOS installation', installed.stderr)
+            missing = self.shell(f'findmnt() {{ echo {target}; }}; check_target_mount {target}/nothing')
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn('does not exist', missing.stderr)
+
     def test_the_automated_installation_needs_its_values(self):
         # The graphical installer prepares the disk and collects the answers,
         # so it calls the installation with the values instead of asking.
