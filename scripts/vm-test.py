@@ -24,12 +24,6 @@ PASSWORD = 'ravnix-test-password'
 LIVE_DEADLINE = 28800     # 8 hours
 SESSION_DEADLINE = 21600  # 6 hours
 
-# Nix has to survive a broken TLS connection to the binary cache. The default
-# of five attempts per file was not enough when the cache dropped the
-# connection repeatedly.
-NIX_OPTIONS = '--option fallback true --option connect-timeout 30 ' \
-              '--option stalled-download-timeout 120 --option download-attempts 10'
-
 # The installation copies the desktop closure into the guest and builds the
 # configuration on top of it. The step limit is a backstop for a stalled
 # guest, the job timeout in the workflow is the outer bound.
