@@ -24,7 +24,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
@@ -52,6 +52,12 @@ jobs:
           cat flake.lock
           echo RAVNIX_LOCK_END
           nix flake check --no-build --show-trace
+      - name: Verify that the installation needs nothing from the network
+        run: |
+          # The installation must build only configuration artefacts. A package
+          # would need its source and a compiler, and the live image carries
+          # neither, so the installation would have to download and compile it.
+          bash scripts/check-offline-install.sh
   # The desktop image is about 3.7 GB, which is larger than the 2 GiB limit
   # GitHub puts on a single release asset, and larger than a hosted runner has
   # room for as a workflow artifact on a private repository. The image is

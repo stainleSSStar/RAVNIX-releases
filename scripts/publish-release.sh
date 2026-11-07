@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Promote only a successfully tested private build; never persist credentials.
+# Promote only a successfully tested build; never persist credentials.
+#
+# The build and the firmware tests run in the repository that carries the
+# release, so the tested image is a draft there. When the source and the
+# release live in the same repository, the draft is published in place; when
+# they differ, the verified parts are copied into a new release.
 set -euo pipefail
 [[ $# == 1 && $1 =~ ^v26\.05-r[0-9]+$ ]] || { echo 'Usage: bash scripts/publish-release.sh v26.05-rNUMBER' >&2; exit 1; }
 tag=$1
-source_repo=stainleSSStar/RAVNIX
-release_repo=stainleSSStar/RAVNIX-releases
+source_repo=${RAVNIX_SOURCE_REPO:-stainleSSStar/RAVNIX}
+release_repo=${RAVNIX_RELEASE_REPO:-stainleSSStar/RAVNIX-releases}
 directory=$(mktemp -d "${TMPDIR:-/tmp}/ravnix-publish.XXXXXX")
 trap 'rm -rf "$directory"' EXIT
 gh release download "$tag" --repo "$source_repo" --dir "$directory"
@@ -36,12 +41,19 @@ assert (p/'build-info.txt').is_file() and (p/'flake.lock').is_file()
 assert (p/'PARTS.txt').is_file()
 print(f'{len(parts)} parts verified, reassembled image matches ISO-SHA256, full BIOS/UEFI test report verified.')
 PY
-gh release create "$tag" --repo "$release_repo" --draft --latest=false \
- --title "RAVNIX 26.05 Desktop (${tag})" \
- --notes "NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the standard NixOS graphical installer (Calamares) and RAVNIX's own text installer. The image is published in parts because GitHub limits a release asset to 2 GiB: run 'cat ravnix-26.05-x86_64.iso.part-* > ravnix-26.05-x86_64.iso' and verify it against ISO-SHA256. BIOS and UEFI live, actual installation, password-required login/sudo, pinned rebuild and reboot passed. See build-info.txt for the exact source, PARTS.txt, GUIDE.md, VM-TESTS.txt and SHA256SUMS. Physical hardware and Secure Boot are outside VM coverage."
-for asset in "$directory"/*; do
- [[ -s $asset ]] || continue
- gh release upload "$tag" "$asset" --repo "$release_repo"
-done
-gh release edit "$tag" --repo "$release_repo" --draft=false --prerelease=false --latest=true
+notes="NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the standard NixOS graphical installer (Calamares) and RAVNIX's own text installer. The image is published in parts because GitHub limits a release asset to 2 GiB: run 'cat ravnix-26.05-x86_64.iso.part-* > ravnix-26.05-x86_64.iso' and verify it against ISO-SHA256. BIOS and UEFI live, actual installation, password-required login/sudo, pinned rebuild and reboot passed. See build-info.txt for the exact source, PARTS.txt, GUIDE.md, VM-TESTS.txt and SHA256SUMS. Physical hardware and Secure Boot are outside VM coverage."
+title="RAVNIX 26.05 Desktop (${tag})"
+if [[ $source_repo == "$release_repo" ]]; then
+  # The draft already carries the tested parts in this repository.
+  gh release edit "$tag" --repo "$release_repo" --draft=false --prerelease=false \
+    --latest=true --title "$title" --notes "$notes"
+else
+  gh release create "$tag" --repo "$release_repo" --draft --latest=false \
+    --title "$title" --notes "$notes"
+  for asset in "$directory"/*; do
+    [[ -s $asset ]] || continue
+    gh release upload "$tag" "$asset" --repo "$release_repo"
+  done
+  gh release edit "$tag" --repo "$release_repo" --draft=false --prerelease=false --latest=true
+fi
 gh release view "$tag" --repo "$release_repo" --json url --jq .url
