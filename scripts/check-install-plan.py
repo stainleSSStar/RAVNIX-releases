@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Compare the paths an installation builds with the paths the live image carries.
+"""Compare the derivations and sources of an installation with the live image.
 
 The live image carries the whole desktop closure, so an installation mostly
-copies it. The paths that the live image does not carry are the ones the
+copies it. The derivations that the live image does not carry are the ones the
 installation has to build itself: configuration artefacts such as rendered
 files, systemd units, the initial ramdisk or the system profile. Their inputs
 are small scripts that come from the Nixpkgs source, so nix rebuilds them
@@ -13,47 +13,27 @@ problem. The installation would have to download it and compile it, which
 needs a network connection and a compiler, and which takes hours on a slow
 machine. This script reports those sources and fails when there are any.
 
-Usage: check-install-plan.py LIVE.json TARGET.json TOPLEVEL.drv
+Usage: check-install-plan.py LIVE-requisites.txt TARGET-requisites.txt [CONFIGURATION]
 """
-import json
 import sys
 
-# Sources of packages: a source tree, a release archive or a single file that
-# was fetched from a repository. Everything else is a file of the Nixpkgs
-# source tree, such as the script that renders a systemd unit.
+# Sources of packages: a source tree or a release archive. Everything else is
+# a single file of the Nixpkgs source tree, such as the script that renders a
+# systemd unit.
 ARCHIVES = ('.tar', '.tgz', '.tar.gz', '.tar.xz', '.tar.bz2', '.zip', '.xz', '.gz', '.bz2')
 
 
-def load(path):
-    """Read the derivations, whether nix printed one object or a stream."""
+def read(path):
     with open(path, encoding='utf-8') as handle:
-        text = handle.read()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        data = {}
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                part = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(part, dict):
-                data.update(part)
-    return data if isinstance(data, dict) else {}
+        return [line.strip() for line in handle if line.strip()]
 
 
-def paths_of(derivations):
-    """Every path the store holds for these derivations."""
-    paths = set()
-    for info in derivations.values():
-        if not isinstance(info, dict):
-            continue
-        paths.update(info.get('outputs') or {})
-        paths.update(info.get('inputSources') or [])
-    return paths
+def derivations(paths):
+    return {path for path in paths if path.endswith('.drv')}
+
+
+def sources(paths):
+    return {path for path in paths if not path.endswith('.drv')}
 
 
 def is_package_source(path):
@@ -65,43 +45,35 @@ def is_package_source(path):
 
 
 def main():
-    live = load(sys.argv[1])
-    target = load(sys.argv[2])
-    toplevel = sys.argv[3]
+    live = read(sys.argv[1])
+    target = read(sys.argv[2])
+    configuration = sys.argv[3] if len(sys.argv) > 3 else ''
 
-    if not live or not target:
-        print('ERROR: the derivations could not be read.', file=sys.stderr)
-        return 1
+    live_derivations = derivations(live)
+    live_sources = sources(live)
+    target_derivations = derivations(target)
+    target_sources = sources(target)
 
-    live_paths = paths_of(live)
+    missing_derivations = sorted(target_derivations - live_derivations)
+    missing_sources = sorted(target_sources - live_sources - {configuration})
 
-    # The configuration itself is copied into the new system and read from
-    # there, so its source never comes from the network.
-    configuration = set((target.get(toplevel) or {}).get('inputSources') or [])
-
-    missing = sorted(set(target) - set(live))
-    print(f'The live image carries {len(live)} derivations, the installation needs {len(target)}.')
-    print(f'The installation builds {len(missing)} paths that the live image does not carry.')
-    for name in missing[:40]:
+    print(f'The live image carries {len(live_derivations)} derivations and '
+          f'{len(live_sources)} sources, the installation needs '
+          f'{len(target_derivations)} derivations and {len(target_sources)} sources.')
+    print(f'The installation builds {len(missing_derivations)} derivations that the '
+          'live image does not carry.')
+    for name in missing_derivations[:20]:
         print(f'  {name.rsplit("/", 1)[-1]}')
-    if len(missing) > 40:
-        print(f'  ... and {len(missing) - 40} more')
+    if len(missing_derivations) > 20:
+        print(f'  ... and {len(missing_derivations) - 20} more')
 
-    sources = set()
-    for name in missing:
-        info = target.get(name) or {}
-        for source in (info.get('inputSources') or []):
-            if source in live_paths or source in configuration:
-                continue
-            if is_package_source(source):
-                sources.add(source)
-
-    if not sources:
+    packages = [source for source in missing_sources if is_package_source(source)]
+    if not packages:
         print('OK: nothing has to be downloaded.')
         return 0
 
     print('Sources the installation would have to download:')
-    for source in sorted(sources):
+    for source in packages:
         print(f'  {source.rsplit("/", 1)[-1]}')
     print('ERROR: the installation depends on packages that the live image does not carry.',
           file=sys.stderr)

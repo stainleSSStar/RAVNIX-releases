@@ -8,18 +8,20 @@
 # it. Everything the installation has to build itself is a configuration
 # artefact: a rendered file such as the sudoers file, a systemd unit, the
 # initial ramdisk or the system profile. Their inputs are small scripts that
-# are part of the live image, so nix rebuilds them locally in a few minutes.
+# are part of the Nixpkgs source, so nix rebuilds them locally in a few
+# minutes.
 #
 # Anything else is a package. Building a package needs its source and a
 # compiler, and neither is in the live image, so the installation would have
 # to download the source and compile it. That is slow on real hardware and
-# impossible without a network connection. This check compares the paths that
-# the installation has to build with the paths that the live image carries and
-# reports every source that would have to be downloaded.
+# impossible without a network connection. This check compares the
+# derivations and the sources of the installation with the ones that the
+# live image carries, and reports every source that would have to be
+# downloaded.
 set -Eeuo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-tmp=$(mktemp -d)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/ravnix-offline.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/etc-nixos"
@@ -76,10 +78,14 @@ HOST
     status=1
     continue
   fi
-  nix derivation show --recursive "$target" > "$tmp/target.json"
   live=$(nix eval --raw .#nixosConfigurations.live.config.system.build.toplevel.drvPath)
-  nix derivation show --recursive "$live" > "$tmp/live.json"
-  if ! python3 "$root/scripts/check-install-plan.py" "$tmp/live.json" "$tmp/target.json" "$target"; then
+  # The configuration is copied into the new system and read from there, so
+  # its source never comes from the network.
+  configuration=$(nix eval --raw --expr "(builtins.getFlake \"path:$tmp/etc-nixos\").outPath")
+  nix-store --query --requisites "$target" > "$tmp/target-requisites.txt"
+  nix-store --query --requisites "$live" > "$tmp/live-requisites.txt"
+  if ! python3 "$root/scripts/check-install-plan.py" \
+        "$tmp/live-requisites.txt" "$tmp/target-requisites.txt" "$configuration"; then
     echo "ERROR: the $mode installation depends on sources that the live image does not carry." >&2
     status=1
   fi

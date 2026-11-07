@@ -150,44 +150,33 @@ class InstallerGuards(unittest.TestCase):
             with self.subTest(package=package):
                 self.assertIn(package, dependencies)
 
-    def plan_check(self, live, target, toplevel='/nix/store/zzz-toplevel.drv'):
-        # The check reads the derivations of the live image and of the
+    def plan_check(self, live, target, configuration='/nix/store/config-source'):
+        # The check reads the requisites of the live image and of the
         # installation, so the rule is exercised without a Nix installation.
         with tempfile.TemporaryDirectory(prefix='ravnix-plan-') as temporary:
-            live_file = Path(temporary)/'live.json'
-            target_file = Path(temporary)/'target.json'
-            live_file.write_text(json.dumps(live))
-            target_file.write_text(json.dumps(target))
+            live_file = Path(temporary)/'live.txt'
+            target_file = Path(temporary)/'target.txt'
+            live_file.write_text('\n'.join(live) + '\n')
+            target_file.write_text('\n'.join(target) + '\n')
             return subprocess.run(
                 ['python3', str(ROOT/'scripts/check-install-plan.py'),
-                 str(live_file), str(target_file), toplevel],
+                 str(live_file), str(target_file), configuration],
                 capture_output=True, text=True)
 
     def test_a_package_source_fails_the_plan_check(self):
         # A package source that the live image does not carry means the
         # installation would have to download it and compile it.
-        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
-        target = {
-            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
-            '/nix/store/kernel.drv': {
-                'outputs': {'out': '/nix/store/kernel'},
-                'inputSources': ['/nix/store/linux-6.18.56.tar.xz'],
-            },
-        }
+        live = ['/nix/store/live.drv', '/nix/store/nixos-units.pl']
+        target = ['/nix/store/kernel.drv', '/nix/store/linux-6.18.56.tar.xz',
+                  '/nix/store/config-source']
         result = self.plan_check(live, target)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('linux-6.18.56.tar.xz', result.stdout)
         self.assertIn('depends on', result.stderr)
 
     def test_a_source_tree_fails_the_plan_check(self):
-        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
-        target = {
-            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
-            '/nix/store/package.drv': {
-                'outputs': {'out': '/nix/store/package'},
-                'inputSources': ['/nix/store/aaa-source'],
-            },
-        }
+        live = ['/nix/store/live.drv']
+        target = ['/nix/store/package.drv', '/nix/store/aaa-source']
         result = self.plan_check(live, target)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('aaa-source', result.stdout)
@@ -196,14 +185,8 @@ class InstallerGuards(unittest.TestCase):
         # The sudoers file and the systemd units are rendered for every
         # configuration, so they are built from small scripts of the Nixpkgs
         # source tree, which the live image carries.
-        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
-        target = {
-            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
-            '/nix/store/units.drv': {
-                'outputs': {'out': '/nix/store/units'},
-                'inputSources': ['/nix/store/bbb-nixos-units.pl'],
-            },
-        }
+        live = ['/nix/store/live.drv', '/nix/store/bbb-nixos-units.pl']
+        target = ['/nix/store/units.drv', '/nix/store/bbb-nixos-units.pl']
         result = self.plan_check(live, target)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('nothing has to be downloaded', result.stdout)
@@ -211,28 +194,18 @@ class InstallerGuards(unittest.TestCase):
     def test_derivations_that_are_built_locally_pass_the_plan_check(self):
         # Derivations that will be built in the guest are fine, their inputs
         # are in the live image.
-        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
-        target = {
-            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
-            '/nix/store/initrd.drv': {'outputs': {'out': '/nix/store/initrd'}},
-            '/nix/store/system.drv': {'outputs': {'out': '/nix/store/system'}},
-        }
+        live = ['/nix/store/live.drv']
+        target = ['/nix/store/initrd.drv', '/nix/store/system.drv']
         result = self.plan_check(live, target)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         # The system profile and the initial ramdisk are built in the guest.
-        self.assertIn('3 paths', result.stdout)
+        self.assertIn('2 derivations', result.stdout)
 
     def test_the_configuration_source_is_never_a_download(self):
         # The configuration is copied into the new system and read from
         # there, so its source never comes from the network.
-        live = {'/nix/store/live.drv': {'outputs': {'out': '/nix/store/live'}}}
-        target = {
-            '/nix/store/zzz-toplevel.drv': {'inputSources': ['/nix/store/config-source']},
-            '/nix/store/system.drv': {
-                'outputs': {'out': '/nix/store/system'},
-                'inputSources': ['/nix/store/config-source'],
-            },
-        }
+        live = ['/nix/store/live.drv']
+        target = ['/nix/store/system.drv', '/nix/store/config-source']
         result = self.plan_check(live, target)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
