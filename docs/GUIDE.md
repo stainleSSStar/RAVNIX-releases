@@ -137,7 +137,9 @@ installation on a layout that does not match stops with a message instead of
 leaving a machine that does not boot.
 
 Neither installer asks for a desktop: RAVNIX is one desktop, and both install
-the same one.
+the same one. The language and the keyboard of the wizard change the
+installation session; the installed system keeps the locale and the keymap of
+the distribution, which are `en_US.UTF-8` and `us`.
 
 ## Configuration, rebuild and rollback
 

@@ -117,4 +117,11 @@ Presentation
             color: "#f5f0ff"
         }
     }
+
+    function onActivate() {
+        presentation.currentSlide = 0;
+    }
+
+    function onLeave() {
+    }
 }

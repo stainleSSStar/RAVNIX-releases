@@ -74,8 +74,8 @@ let
 in {
   imports = [
     "${modulesPath}/installer/cd-dvd/iso-image.nix"
-    # Bundle the NixOS/Nixpkgs channel so the standard graphical installer,
-    # which writes a channel-style configuration, can install offline.
+    # Bundle the NixOS/Nixpkgs channel, so the medium carries a Nixpkgs
+    # revision and can install without a network connection.
     "${modulesPath}/installer/cd-dvd/channel.nix"
   ];
   # The bare ISO module only includes its own squashfs/ISO/tmpfs mounts.
