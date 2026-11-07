@@ -60,7 +60,7 @@ for mode in bios uefi; do
     isNormalUser = true;
     extraGroups = [ "wheel" "networkmanager" "video" "render" "input" "lp" "scanner" "dialout" ];
   };
-  boot.kernelParams = [ "console=tty0 console=ttyS0,115200n8" ];
+  boot.kernelParams = [ "console=tty0" "console=ttyS0,115200n8" ];
   boot.loader.grub = {
     enable = true;
     device = "$device";

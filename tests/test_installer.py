@@ -242,6 +242,13 @@ class InstallerGuards(unittest.TestCase):
         ok = self.shell('parse_arguments --kernel-params "console=ttyS0,115200n8"; echo "$kernel_params"')
         self.assertEqual(ok.returncode, 0, ok.stderr)
         self.assertEqual(ok.stdout.strip(), 'console=ttyS0,115200n8')
+        # NixOS wants one parameter per list entry and no spaces inside one.
+        generated = self.shell('kernel_params_nix "console=tty0 console=ttyS0,115200n8"')
+        self.assertEqual(generated.returncode, 0, generated.stderr)
+        self.assertEqual(generated.stdout.strip(),
+                         'boot.kernelParams = [ "console=tty0" "console=ttyS0,115200n8" ];')
+        empty = self.shell('kernel_params_nix ""')
+        self.assertEqual(empty.stdout.strip(), '')
         equal = self.shell('parse_arguments --kernel-params=quiet; echo "$kernel_params"')
         self.assertEqual(equal.returncode, 0, equal.stderr)
         self.assertEqual(equal.stdout.strip(), 'quiet')

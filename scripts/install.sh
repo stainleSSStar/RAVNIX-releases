@@ -8,6 +8,15 @@ validate_username() {
  [[ $1 =~ ^[a-z_][a-z0-9_-]{0,31}$ && $1 != root && $1 != ravnix && $1 != nixos ]] || fail 'Invalid or reserved username.'
  ! getent passwd "$1" >/dev/null || fail 'Username already exists; choose another.'
 }
+kernel_params_nix() {
+ # NixOS wants one parameter per list entry, and an entry must not contain
+ # spaces unless they are inside quotes.
+ local parameters=$1 parameter
+ [[ -n $parameters ]] || return 0
+ printf '  boot.kernelParams = ['
+ for parameter in $parameters; do printf ' "%s"' "$parameter"; done
+ printf ' ];\n'
+}
 parse_arguments() {
  kernel_params=''
  while (($# > 0)); do
@@ -150,7 +159,7 @@ main() {
     efiInstallAsRemovable = $(if [[ $mode == uefi ]]; then echo true; else echo false; fi);
   };
   boot.loader.efi = { canTouchEfiVariables = false; efiSysMountPoint = "/boot/efi"; };
-$(if [[ -n ${kernel_params:-} ]]; then printf '  boot.kernelParams = [ "%s" ];\n' "$kernel_params"; fi)}
+$(kernel_params_nix "${kernel_params:-}")}
 HOST
  # Flakes use host.nix + hardware-configuration.nix. The upstream channel-style
  # configuration is not used; replace it with an equivalent import for clarity.
