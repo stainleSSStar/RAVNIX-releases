@@ -386,7 +386,7 @@ def graphical_installation(directory, mode, disk, iso, accel, out, phase):
         console.send('tester\n')
         console.expect(b'Password:',timeout=30)
         console.send(PASSWORD+'\n')
-        quiet_bash(console)
+        quiet_bash(console,host='ravnix-graphical')
         phase.mark('graphical system booted')
         console.run(HEALTH+'\ntest "$(hostname)" = ravnix-graphical\n'
                     'test -f "$HOME/.config/fastfetch/config.jsonc"\n'
@@ -432,8 +432,11 @@ def poweroff(console):
         raise RuntimeError(f'QEMU exited with {console.process.returncode}')
 
 
-def quiet_bash(console, live=False):
-    prompt = b'ravnix@ravnix ~ > ' if live else b'tester@ravnix-test ~ > '
+def quiet_bash(console, live=False, host='ravnix-test'):
+    # The prompt of the shell carries the name of the machine, so the test has
+    # to know which host it is looking at: the graphical installation uses
+    # another name than the text installation.
+    prompt = b'ravnix@ravnix ~ > ' if live else f'tester@{host} ~ > '.encode()
     console.expect(prompt,timeout=1800)
     console.send(('sudo -n ' if live else 'exec ')+'bash --noprofile --norc\n')
     console.expect(b'# ' if live else b'$ ',timeout=30)

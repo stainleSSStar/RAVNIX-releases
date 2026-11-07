@@ -154,6 +154,17 @@ class VMProtocol(unittest.TestCase):
         self.assertIn('mkdir -p /mnt', script)
         self.assertLess(script.index('mkdir -p /mnt'), script.index('mount -t ext4'))
 
+    def test_the_shell_prompt_carries_the_name_of_the_machine(self):
+        # The prompt of the shell is "user@host", and the graphical
+        # installation gives the machine another name than the text one. The
+        # test has to look for the prompt of the machine it just installed.
+        console=Mock()
+        vm.quiet_bash(console,live=False,host='ravnix-graphical')
+        self.assertEqual(console.expect.call_args_list[0].args[0],b'tester@ravnix-graphical ~ > ')
+        console=Mock()
+        vm.quiet_bash(console,live=False)
+        self.assertEqual(console.expect.call_args_list[0].args[0],b'tester@ravnix-test ~ > ')
+
     def test_the_graphical_installation_keeps_the_serial_console(self):
         # The serial console is the only way into the installed system, so the
         # graphical installation has to ask for the console parameters, the way
