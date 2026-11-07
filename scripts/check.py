@@ -45,6 +45,10 @@ assert '../pkgs/brave-origin.nix' in desktop
 # The graphical installer is on the live medium and installs RAVNIX itself.
 assert 'calamares-nixos' not in desktop
 assert 'calamares' in live
+# The graphical installer partitions the disk and creates the filesystems
+# itself, so the live medium has to carry the tools for it.
+for tool in ('parted', 'e2fsprogs', 'dosfstools'):
+    assert tool in live, tool
 # NixOS never copies /etc/skel into a new home directory, so the profile has
 # to be seeded into the accounts by the system itself.
 assert 'users-ravnix-profile' in desktop

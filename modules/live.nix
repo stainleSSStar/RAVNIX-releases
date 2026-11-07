@@ -132,7 +132,17 @@ in {
     nixos-generate-config.enable = true;
     nixos-install.enable = true;
   };
-  environment.systemPackages = [ installer guide calamares ];
+  # The graphical installer partitions the disk and creates the filesystems
+  # itself. The package of Calamares carries the tools it needs to talk to
+  # the disk, but not the ones that create the partitions and the
+  # filesystems, so the live medium has to provide them: parted for the
+  # partition table, e2fsprogs for the root filesystem and dosfstools for the
+  # EFI system partition. The text installer has them in its own path and
+  # does not need them here.
+  environment.systemPackages = with pkgs; [
+    installer guide calamares
+    parted e2fsprogs dosfstools
+  ];
   # The installation builds the initial ramdisk and installs the bootloader
   # inside the guest, so the live image has to carry everything the installed
   # system needs. Without these paths the installation depends on the binary

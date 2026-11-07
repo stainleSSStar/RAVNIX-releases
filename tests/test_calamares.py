@@ -7,6 +7,7 @@ Calamares installation: the API of Calamares is replaced by a small stub.
 """
 import importlib.util
 from pathlib import Path
+import re
 import subprocess
 import sys
 import types
@@ -157,6 +158,18 @@ class GraphicalInstallerModule(unittest.TestCase):
         # The layout of the graphical installer has to reach the package.
         live = (ROOT/'modules/live.nix').read_text()
         self.assertIn('calamares/config/partition.conf', live)
+
+    def test_the_live_medium_carries_the_tools_of_the_graphical_installer(self):
+        # The graphical installer partitions the disk and creates the
+        # filesystems itself. The package of Calamares carries the tools it
+        # needs to talk to the disk, but not the ones that create the
+        # partitions and the filesystems, so the live medium has to provide
+        # them. Without them the installation stops at the first partition.
+        live = (ROOT/'modules/live.nix').read_text()
+        packages = re.search(r'environment\.systemPackages = with pkgs; \[(.*?)\];', live, re.S)
+        self.assertIsNotNone(packages)
+        for tool in ('parted', 'e2fsprogs', 'dosfstools'):
+            self.assertIn(tool, packages.group(1))
 
     def test_the_branding_comes_first_in_the_search_path(self):
         # The graphical installer looks for the branding in the directories of
