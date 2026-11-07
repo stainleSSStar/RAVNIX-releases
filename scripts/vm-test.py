@@ -350,9 +350,11 @@ def test_mode(iso, mode, out):
             phase.mark('live session ready')
             # The store of the live image decides what the installation has to
             # build. The numbers are cheap and say where a slow run spent its
-            # time: a store that is not registered has to be rebuilt.
-            console.run('echo "registered paths: $(nix-store --query --valid-registrations | wc -l)"\n'
-                        'echo "store paths: $(ls /nix/store | wc -l)"\n'
+            # time: a store that is not registered has to be rebuilt. Only
+            # flags of Nix 2.35 are used, because a probe with an unknown flag
+            # fails the whole firmware test before the installation starts.
+            console.run('echo "store paths: $(ls /nix/store | wc -l)"\n'
+                        'echo "system paths: $(nix-store --query --requisites /run/current-system | wc -l)"\n'
                         'echo "nixpkgs source: $(ls -d /nix/store/*-source 2>/dev/null | wc -l)"','RAVNIX_STORE_INFO')
             # The live user's login shell remains Fish even when the test runs Bash as root.
             console.run(HEALTH.replace('$USER','ravnix')+'\ncommand -v ravnix-install; command -v ravnix-guide; test -f /etc/ravnix/live; sudo -u ravnix sudo -n true; nm-online -q --timeout=90', 'RAVNIX_LIVE_OK')

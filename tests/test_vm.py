@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import subprocess
 import contextlib
 import io
+import re
 import tempfile
 
 spec=importlib.util.spec_from_file_location('vm',Path(__file__).resolve().parents[1]/'scripts/vm-test.py')
@@ -152,6 +153,34 @@ class VMProtocol(unittest.TestCase):
                 vm.test_mode(Path('unused.iso'), mode, Path('.'))
         self.assertEqual(probes.count('RAVNIX_USER_OK'), 4)
         self.assertEqual(probes.count('RAVNIX_REBUILD_OK'), 2)
+
+    def test_the_guest_probes_only_use_nix_flags_that_exist(self):
+        # Nix 2.35 does not know every flag of every nix command. A probe that
+        # uses an unknown flag fails the whole firmware test before the
+        # installation even starts, so the flags of "nix-store --query" are
+        # taken from the Nix 2.35.4 source (src/nix/nix-store/nix-store.cc).
+        query_flags = {'--outputs', '--requisites', '-R', '--references',
+                       '--referrers', '--referrers-closure', '--deriver', '-d',
+                       '--valid-derivers', '--binding', '-b', '--hash', '--size',
+                       '--tree', '--graph', '--graphml', '--resolve', '--roots'}
+        bodies = []
+        console = Mock()
+        console.run.side_effect = lambda body, marker, **kwargs: bodies.append(body)
+        manager = Mock()
+        manager.__enter__ = Mock(return_value=console)
+        manager.__exit__ = Mock(return_value=False)
+        with contextlib.redirect_stdout(io.StringIO()), \
+             patch.object(vm, 'VM', return_value=manager), \
+             patch.object(vm, 'command', return_value=([], None)), \
+             patch.object(vm, 'poweroff'), \
+             patch.object(vm.subprocess, 'run'):
+            for mode in ['bios', 'uefi']:
+                vm.test_mode(Path('unused.iso'), mode, Path('.'))
+        self.assertTrue(bodies, 'no probe was collected')
+        for body in bodies:
+            for flag in re.findall(r'nix-store --query (--?[\w-]+)', body):
+                with self.subTest(flag=flag):
+                    self.assertIn(flag, query_flags)
 
     def test_accelerator_uses_hardware_virtualisation_when_it_works(self):
         # Software emulation makes the installation test ten times slower, so
