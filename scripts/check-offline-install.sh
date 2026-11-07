@@ -81,7 +81,7 @@ HOST
   live=$(nix eval --raw .#nixosConfigurations.live.config.system.build.toplevel.drvPath)
   # The configuration is copied into the new system and read from there, so
   # its source never comes from the network.
-  configuration=$(nix eval --raw --expr "(builtins.getFlake \"path:$tmp/etc-nixos\").outPath")
+  configuration=$(nix eval --raw --impure --expr "(builtins.getFlake \"path:$tmp/etc-nixos\").outPath")
   nix-store --query --requisites "$target" > "$tmp/target-requisites.txt"
   nix-store --query --requisites "$live" > "$tmp/live-requisites.txt"
   if ! python3 "$root/scripts/check-install-plan.py" \
