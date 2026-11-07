@@ -26,11 +26,11 @@ let
   '';
   # The wizard shows the branding of RAVNIX instead of the one of NixOS.
   calamaresBranding = pkgs.linkFarm "ravnix-calamares-branding" [
-    "share/calamares/branding/ravnix/branding.desc" ../modules/calamares/branding/ravnix/branding.desc
-    "share/calamares/branding/ravnix/show.qml" ../modules/calamares/branding/ravnix/show.qml
-    "share/calamares/branding/ravnix/ravnix-logo.png" ../assets/calamares/ravnix-logo.png
-    "share/calamares/branding/ravnix/ravnix-welcome.png" ../assets/calamares/ravnix-welcome.png
-    "share/calamares/branding/ravnix/ravnix-background.jpg" ../assets/calamares/ravnix-background.jpg
+    { name = "share/calamares/branding/ravnix/branding.desc"; path = ../modules/calamares/branding/ravnix/branding.desc; }
+    { name = "share/calamares/branding/ravnix/show.qml"; path = ../modules/calamares/branding/ravnix/show.qml; }
+    { name = "share/calamares/branding/ravnix/ravnix-logo.png"; path = ../assets/calamares/ravnix-logo.png; }
+    { name = "share/calamares/branding/ravnix/ravnix-welcome.png"; path = ../assets/calamares/ravnix-welcome.png; }
+    { name = "share/calamares/branding/ravnix/ravnix-background.jpg"; path = ../assets/calamares/ravnix-background.jpg; }
   ];
   calamaresExtensions = pkgs.calamares-nixos-extensions.overrideAttrs (old: {
     postInstall = (old.postInstall or "") + ''
@@ -58,11 +58,15 @@ let
         $out/etc/calamares/modules/users.conf
     '';
   });
-  calamares = pkgs.calamares-nixos.override {
-    calamares-nixos-extensions = calamaresExtensions;
+  # The graphical installer of the NixOS extensions is the Calamares package
+  # with the wrapper arguments that point at the extensions. The same wrapper
+  # carries the RAVNIX branding, and the branding comes first in the search
+  # path, so the wizard shows RAVNIX and not NixOS. The search path is one
+  # prefix with both directories: every prefix puts its own directory in
+  # front, so the last one would win.
+  calamares = pkgs.calamares.override {
     extraWrapperArgs = [
-      "--prefix XDG_DATA_DIRS : ${calamaresBranding}/share"
-      "--prefix XDG_DATA_DIRS : ${calamaresExtensions}/share"
+      "--prefix XDG_DATA_DIRS : ${calamaresBranding}/share:${calamaresExtensions}/share"
       "--prefix XDG_CONFIG_DIRS : ${calamaresExtensions}/etc"
       "--add-flag --xdg-config"
     ];

@@ -106,7 +106,10 @@ class GraphicalInstallerModule(unittest.TestCase):
         # NixOS extensions.
         live = (ROOT / 'modules/live.nix').read_text()
         self.assertIn('modules-search: [ local, ${calamaresModules}/lib/calamares/modules', live)
-        self.assertIn('calamares-nixos-extensions = calamaresExtensions', live)
+        # The graphical installer uses the patched extensions, with our own
+        # installation module, our own partitioning and the RAVNIX branding.
+        self.assertIn('${calamaresExtensions}/share', live)
+        self.assertIn('${calamaresExtensions}/etc', live)
 
     def test_the_graphical_installer_uses_the_ravnix_branding(self):
         live = (ROOT / 'modules/live.nix').read_text()
@@ -154,6 +157,25 @@ class GraphicalInstallerModule(unittest.TestCase):
         # The layout of the graphical installer has to reach the package.
         live = (ROOT/'modules/live.nix').read_text()
         self.assertIn('calamares/config/partition.conf', live)
+
+    def test_the_branding_comes_first_in_the_search_path(self):
+        # The graphical installer looks for the branding in the directories of
+        # XDG_DATA_DIRS and uses the first one it finds. Every prefix puts its
+        # own directory in front, so two prefixes would let the last one win.
+        live = (ROOT/'modules/live.nix').read_text()
+        self.assertIn('--prefix XDG_DATA_DIRS : ${calamaresBranding}/share:${calamaresExtensions}/share',
+                      live)
+        self.assertEqual(live.count('--prefix XDG_DATA_DIRS'), 1)
+
+    def test_the_graphical_installer_is_the_calamares_package(self):
+        # The package of the NixOS extensions is a function that takes its
+        # arguments, so it cannot be overridden like a derivation.
+        live = (ROOT/'modules/live.nix').read_text()
+        self.assertIn('pkgs.calamares.override {', live)
+        self.assertNotIn('pkgs.calamares-nixos.override', live)
+        # The branding is a set of links, and the entries name the file and
+        # the path it points to.
+        self.assertIn('{ name = "share/calamares/branding/ravnix/branding.desc"; path =', live)
 
 
 if __name__ == '__main__':

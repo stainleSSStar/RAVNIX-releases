@@ -37,6 +37,9 @@ The ISO is `result/iso/ravnix-26.05-x86_64.iso`. Source checks and evaluation:
 python3 scripts/check.py
 python3 -m unittest discover -s tests -v
 nix flake check --no-build
+# The release output, evaluated on every system: a check on another
+# architecture does not reach it.
+nix eval --raw .#packages.x86_64-linux.default.drvPath
 ```
 
 Push/PR runs validation. **Actions → Build RAVNIX ISO → Run workflow** builds
