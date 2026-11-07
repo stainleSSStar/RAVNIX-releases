@@ -1,4 +1,4 @@
-{ lib, pkgs, modulesPath, ... }:
+{ lib, pkgs, modulesPath, nixpkgsSource, ... }:
 {
   imports = [ "${modulesPath}/profiles/minimal.nix" ./desktop.nix ];
   system.stateVersion = "26.05";
@@ -62,9 +62,22 @@
     nixos-install.enable = lib.mkDefault false;
     nixos-option.enable = false;
   };
+  # The pinned Nixpkgs source belongs to the system itself, not only to the
+  # live image. The configuration is read from the Nixpkgs source when the
+  # system is evaluated, so a machine that carries the source can rebuild
+  # itself without a network connection: the flake input is already in the
+  # store and does not have to be fetched again. Without it, every rebuild on
+  # the installed machine downloads the whole source tree first.
+  system.extraDependencies = [ nixpkgsSource ];
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.settings.auto-optimise-store = true;
   nix.settings.trusted-users = [ "root" ];
+  # A flaky connection to the binary cache must not abort a rebuild: the
+  # connection gets more time and a failed transfer is retried more often
+  # than the default five times.
+  nix.settings.connect-timeout = 30;
+  nix.settings.stalled-download-timeout = 120;
+  nix.settings.download-attempts = 10;
   # No automatic updates or garbage collection: retain rollback generations.
   nix.gc.automatic = false;
   system.autoUpgrade.enable = false;

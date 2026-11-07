@@ -77,7 +77,9 @@ NixOS* desktop shortcut for the standard graphical installer. **The text
 installer erases all data on the selected disk after exact confirmation.**
 The installation works without an internet connection, because the medium
 carries the bootloader, the ramdisk tools and the pinned Nixpkgs source; a
-dedicated 16 GiB+ disk is required. Extra kernel parameters, such as a serial
+dedicated 16 GiB+ disk is required. The installed system keeps the pinned
+Nixpkgs source as well, so it can rebuild itself offline. Extra kernel
+parameters, such as a serial
 console for a headless machine, are passed with
 `sudo ravnix-install --kernel-params "console=tty0 console=ttyS0,115200n8"`.
 No dual boot,
@@ -88,7 +90,7 @@ validation on the target machines.
 
 | Path | Purpose |
 | --- | --- |
-| `modules/base.nix` | Shared system: network, users, Fish, security policy, branding of GRUB |
+| `modules/base.nix` | Shared system: network, users, Fish, security policy, branding of GRUB, pinned Nixpkgs source |
 | `modules/desktop.nix` | Plasma 6, Purple Neon theme, wallpaper, greeter theme, applications, drivers |
 | `modules/live.nix` | Live medium: autologin, boot splash images, installer shortcuts |
 | `assets/` | Wallpaper, colour schemes, greeter theme, fastfetch/btop branding, boot splash |

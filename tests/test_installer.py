@@ -61,12 +61,12 @@ class InstallerGuards(unittest.TestCase):
         # the paths that are not in the live image. A single failed transfer
         # must not abort an installation that has already erased the disk, so
         # nix is told to build the missing path from source as a last resort.
-        for name in ['scripts/install.sh', 'scripts/vm-test.py']:
-            source = (ROOT/name).read_text()
-            with self.subTest(script=name):
-                self.assertIn('--option fallback true', source)
-                self.assertIn('--option connect-timeout 30', source)
-                self.assertIn('--option stalled-download-timeout 120', source)
+        # The options belong to the installer: the harness runs the installer
+        # inside the guest and never calls nix itself.
+        source = (ROOT/'scripts/install.sh').read_text()
+        self.assertIn('--option fallback true', source)
+        self.assertIn('--option connect-timeout 30', source)
+        self.assertIn('--option stalled-download-timeout 120', source)
 
     def test_the_resilient_options_belong_to_the_install_command(self):
         # They have to reach nixos-install, not a separate invocation, and the
@@ -125,11 +125,29 @@ class InstallerGuards(unittest.TestCase):
     def test_a_broken_cache_connection_is_retried_more_often(self):
         # The binary cache dropped the TLS connection again and again during
         # the test runs. The default of five attempts per file was not enough
-        # to get past it.
-        for name in ['scripts/install.sh', 'scripts/vm-test.py']:
-            source = (ROOT/name).read_text()
-            with self.subTest(script=name):
-                self.assertIn('--option download-attempts 10', source)
+        # to get past it. The installed system carries the same settings, so a
+        # rebuild on the installed machine is protected in the same way.
+        self.assertIn('--option download-attempts 10', (ROOT/'scripts/install.sh').read_text())
+        base = (ROOT/'modules/base.nix').read_text()
+        self.assertIn('download-attempts = 10', base)
+        self.assertIn('connect-timeout = 30', base)
+        self.assertIn('stalled-download-timeout = 120', base)
+
+    def test_the_installed_system_carries_the_pinned_nixpkgs_source(self):
+        # A rebuild on the installed machine evaluates the configuration from
+        # the Nixpkgs source. When the source is not in the store, the machine
+        # has to download the whole tree before it can rebuild itself, and a
+        # broken connection to the binary cache aborts the rebuild.
+        base = (ROOT/'modules/base.nix').read_text()
+        self.assertIn('nixpkgsSource', base)
+        self.assertIn('system.extraDependencies = [ nixpkgsSource ];', base)
+        # The live image takes the source from the base module, so it must not
+        # be listed a second time.
+        live = (ROOT/'modules/live.nix').read_text()
+        self.assertNotIn('\n    nixpkgsSource\n', live)
+        # The installed configuration has to import the base module, otherwise
+        # the installed system does not get the source.
+        self.assertIn('./modules/base.nix', (ROOT/'scripts/install.sh').read_text())
 
     def test_the_live_image_carries_the_installation_dependencies(self):
         # The installation builds the initial ramdisk and installs the

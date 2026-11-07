@@ -46,6 +46,10 @@ itself. Only a few kilobytes of rendered files, such as the sudoers file,
 come from the Nix binary cache; if the cache cannot be reached, they are
 built locally instead. The live session itself is offline-capable as well.
 
+The installed system carries the pinned Nixpkgs source as well, so it can
+rebuild itself without a network connection: the source is already in the
+store and does not have to be downloaded again.
+
 ## Appearance
 
 The wallpaper, the colour scheme and the greeter theme are RAVNIX specific:
@@ -121,9 +125,10 @@ want the RAVNIX desktop, theme and preinstalled applications.
 `/etc/nixos/host.nix` contains your hostname, timezone, user and bootloader.
 `hardware-configuration.nix` is generated from the actual machine, including UUIDs.
 `modules/base.nix` defines the shared system and `modules/desktop.nix` the
-desktop, theme and applications. `flake.nix` and `flake.lock` pin Nixpkgs. Local
-configuration files remain writable; no private GitHub access is needed for
-future rebuilds. Keep a backup of `/etc/nixos`.
+desktop, theme and applications. `flake.nix` and `flake.lock` pin Nixpkgs. The
+pinned Nixpkgs source is part of the system, so a rebuild needs neither the
+internet nor a private GitHub account. Local configuration files remain
+writable. Keep a backup of `/etc/nixos`.
 
 After editing configuration:
 
