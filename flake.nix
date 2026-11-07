@@ -1,12 +1,16 @@
 {
-  description = "RAVNIX — minimal NixOS console live/installer distribution";
+  description = "RAVNIX — NixOS 26.05 distribution with KDE Plasma 6, Purple Neon theming and a tested live installer";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/26f4107e47e3ad0ffd0db220469ba83b6f6d96e8";
   outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      # The pinned Nixpkgs source belongs to the live image, so the
+      # installation can evaluate the configuration without a network.
+      nixpkgsSource = nixpkgs.outPath;
       mkSystem = modules: nixpkgs.lib.nixosSystem {
         inherit system;
+        specialArgs = { inherit nixpkgsSource; };
         modules = [ ./modules/base.nix ] ++ modules;
       };
       live = mkSystem [ ./modules/live.nix ];

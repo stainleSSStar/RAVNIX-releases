@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       build_iso:
-        description: Build the console ISO and run BIOS/UEFI installation tests
+        description: Build the desktop ISO and run BIOS/UEFI installation tests
         type: boolean
         default: true
       stage_release:
@@ -24,7 +24,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
@@ -52,11 +52,23 @@ jobs:
           cat flake.lock
           echo RAVNIX_LOCK_END
           nix flake check --no-build --show-trace
-  iso:
+      - name: Verify that the installation needs nothing from the network
+        run: |
+          # The installation must build only configuration artefacts. A package
+          # would need its source and a compiler, and the live image carries
+          # neither, so the installation would have to download and compile it.
+          bash scripts/check-offline-install.sh
+  # The desktop image is about 3.7 GB, which is larger than the 2 GiB limit
+  # GitHub puts on a single release asset, and larger than a hosted runner has
+  # room for as a workflow artifact on a private repository. The image is
+  # therefore split into parts and handed to the firmware jobs through the
+  # private draft release, which is the channel that is known to carry files
+  # this size.
+  build:
     needs: validate
     if: github.event_name == 'workflow_dispatch' && inputs.build_iso
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 240
     permissions:
       contents: write
     steps:
@@ -66,49 +78,243 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
             accept-flake-config = false
-            max-jobs = 2
-      - name: Build pinned console ISO
+            max-jobs = 4
+      - name: Free runner disk space
+        run: |
+          # The desktop closure and the ISO builder together need more room
+          # than the runner has with its preinstalled toolchains in place.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /usr/lib/jvm /usr/local/graalvm /usr/local/share/powershell \
+            /usr/share/azure-cli /opt/hostedtoolcache/CodeQL \
+            /usr/lib/llvm-14 /usr/lib/llvm-15 /usr/lib/llvm-16 /usr/lib/llvm-17
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get clean
+          df -h /
+      - name: Build pinned desktop ISO
         run: |
           mkdir out
-          nix flake lock
-          git add flake.lock
+          # Fetch and build the whole closure first, then drop the downloaded
+          # sources: the ISO builder needs the disk space more than the
+          # compressed archives do.
+          nix build .#nixosConfigurations.live.config.system.build.toplevel --no-link
+          rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/nix/tarballs"
+          df -h /
+          # The installation has to work without a network connection: a single
+          # broken download to the binary cache aborts it after the disk was
+          # already erased. The check runs before the image is assembled, so a
+          # missing path is reported in minutes instead of hours.
+          bash scripts/check-offline-install.sh
           nix build .#iso -L 2>&1 | tee out/build.log
-          cp result/iso/*.iso out/
+          df -h /
+          # A hard link avoids holding a second copy of the multi-gigabyte image.
+          ln result/iso/*.iso out/ 2>/dev/null || cp result/iso/*.iso out/
           cp flake.lock out/flake.lock
           cp docs/GUIDE.md out/GUIDE.md
           nix path-info --recursive .#nixosConfigurations.live.config.system.build.toplevel > out/live-store-paths.txt
           nix path-info --closure-size .#nixosConfigurations.live.config.system.build.toplevel > out/closure-size.txt
           printf 'Source: %s\nNixpkgs: %s\n' "$GITHUB_SHA" "$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock)" > out/build-info.txt
-          (cd out && sha256sum *.iso > SHA256SUMS && sha256sum -c SHA256SUMS)
-      - name: Test BIOS live ISO, installation, login, rebuild and reboot
+          # The desktop image is larger than the 2 GiB release-asset limit, so
+          # the whole-image digest is kept apart from the per-part digests.
+          (cd out && sha256sum *.iso > ISO-SHA256 && sha256sum -c ISO-SHA256)
+          # The ISO does not reference the closure it contains, so the store can
+          # be trimmed again to leave room for the virtual machine disks.
+          nix store gc || true
+          df -h /
+      - name: Split the image into release parts
         run: |
-          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
-          sudo apt-get update $APT_OPTS
-          sudo apt-get install -y $APT_OPTS qemu-system-x86 ovmf
-          python3 scripts/vm-test.py out/*.iso --mode bios 2>&1 | tee out/vm-bios-tests.log
-      - name: Test UEFI live ISO, installation, login, rebuild and reboot
-        run: |
-          python3 scripts/vm-test.py out/*.iso --mode uefi 2>&1 | tee out/vm-uefi-tests.log
-      - name: Record full firmware validation
-        run: |
-          printf '%s\n' 'PASS: BIOS and UEFI live, text installation, password login, rebuild and reboot.' 'Physical hardware, Secure Boot, dual boot and encryption are not tested.' > out/VM-TESTS.txt
-      - name: Stage complete tested release (private draft)
-        if: success() && inputs.stage_release
+          set -euo pipefail
+          shopt -s nullglob
+          isos=(out/*.iso)
+          [[ ${#isos[@]} == 1 && -s ${isos[0]} ]]
+          image=${isos[0]}
+          name=$(basename "$image")
+          split -b 1800M -d -a 2 -- "$image" "out/$name.part-"
+          rm -f -- "$image"
+          (cd out && sha256sum "$name".part-* > SHA256SUMS && sha256sum -c SHA256SUMS)
+          {
+            printf '%s\n' \
+              'The RAVNIX desktop ISO is published in parts because GitHub limits a' \
+              'single release asset to 2 GiB and the image is larger than that.' \
+              '' \
+              'Reassemble it:' \
+              '' \
+              "    cat $name.part-* > $name" \
+              '' \
+              'Verify the parts before reassembling:' \
+              '' \
+              '    sha256sum -c SHA256SUMS' \
+              '' \
+              'Verify the reassembled image afterwards:' \
+              '' \
+              "    sha256sum -c ISO-SHA256"
+          } > out/PARTS.txt
+          cat out/PARTS.txt
+          ls -l out/
+      - name: Hand the image to the firmware jobs
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          isos=(out/*.iso)
-          [[ ${#isos[@]} == 1 && -s ${isos[0]} ]]
-          (cd out && sha256sum -c SHA256SUMS)
-          grep -qx 'PASS: BIOS and UEFI live, text installation, password login, rebuild and reboot.' out/VM-TESTS.txt
+          parts=(out/*.iso.part-*)
+          [[ ${#parts[@]} -ge 1 ]]
           tag="v26.05-r${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" --draft --latest=false --title "RAVNIX 26.05 TTY (build ${GITHUB_RUN_NUMBER})" --notes "Minimal console-only NixOS derivative. Source: ${GITHUB_SHA}. BIOS and UEFI live, actual text installation, password-required sudo, rebuild and reboot tests passed. No graphical stack. See GUIDE.md, SHA256SUMS and VM logs. Physical hardware and Secure Boot are not covered."
-          for asset in out/*; do
+          gh release create "$tag" --draft --latest=false \
+            --title "RAVNIX 26.05 Desktop (build ${GITHUB_RUN_NUMBER})" \
+            --notes "NixOS 26.05 derivative with KDE Plasma 6. Source: ${GITHUB_SHA}. The image is published in parts because GitHub limits a release asset to 2 GiB. This draft is published only after the BIOS and UEFI installation tests pass."
+          for asset in out/*.iso.part-* out/SHA256SUMS out/ISO-SHA256 out/PARTS.txt out/build-info.txt out/flake.lock out/GUIDE.md out/closure-size.txt out/live-store-paths.txt out/build.log; do
+            [[ -s $asset ]] || continue
+            gh release upload "$tag" "$asset"
+          done
+          echo "The tested image parts are staged in the private draft $tag."
+  # Both firmware modes are tested at the same time, each on its own runner.
+  # A hosted runner has two cores and the guest runs under software emulation,
+  # which is CPU bound, so two guests on one runner would not be any faster
+  # than one after the other.
+  bios:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /usr/lib/jvm /usr/local/graalvm /usr/local/share/powershell \
+            /usr/share/azure-cli /opt/hostedtoolcache/CodeQL \
+            /usr/lib/llvm-14 /usr/lib/llvm-15 /usr/lib/llvm-16 /usr/lib/llvm-17
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get clean
+          df -h /
+      - name: Fetch the image that was built
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p in
+          tag="v26.05-r${GITHUB_RUN_NUMBER}"
+          gh release download "$tag" --repo "$GH_REPO" --pattern '*.iso.part-*' --pattern 'ISO-SHA256' --pattern 'SHA256SUMS' --dir in
+          parts=(in/*.iso.part-*)
+          [[ ${#parts[@]} -ge 1 ]]
+          (cd in && sha256sum -c SHA256SUMS)
+          cat in/*.iso.part-* > in/image.iso
+          rm -f in/*.iso.part-*
+          mv in/image.iso in/ravnix-26.05-x86_64.iso
+          (cd in && sha256sum -c ISO-SHA256)
+          df -h /
+      - name: Test BIOS live ISO, installation, login, rebuild and reboot
+        run: |
+          echo "runner cores: $(nproc), memory: $(free -g | awk '/^Mem:/{print $2}') GiB"
+          ls -l /dev/kvm || echo "no /dev/kvm on this runner"
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          sudo apt-get update $APT_OPTS
+          sudo apt-get install -y $APT_OPTS qemu-system-x86 ovmf
+          python3 scripts/vm-test.py in/ravnix-26.05-x86_64.iso --mode bios 2>&1 | tee out-vm-bios-tests.log
+      - name: Keep the BIOS test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ravnix-bios-log
+          path: out-vm-bios-tests.log
+          retention-days: 7
+  uefi:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /usr/lib/jvm /usr/local/graalvm /usr/local/share/powershell \
+            /usr/share/azure-cli /opt/hostedtoolcache/CodeQL \
+            /usr/lib/llvm-14 /usr/lib/llvm-15 /usr/lib/llvm-16 /usr/lib/llvm-17
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get clean
+          df -h /
+      - name: Fetch the image that was built
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p in
+          tag="v26.05-r${GITHUB_RUN_NUMBER}"
+          gh release download "$tag" --repo "$GH_REPO" --pattern '*.iso.part-*' --pattern 'ISO-SHA256' --pattern 'SHA256SUMS' --dir in
+          parts=(in/*.iso.part-*)
+          [[ ${#parts[@]} -ge 1 ]]
+          (cd in && sha256sum -c SHA256SUMS)
+          cat in/*.iso.part-* > in/image.iso
+          rm -f in/*.iso.part-*
+          mv in/image.iso in/ravnix-26.05-x86_64.iso
+          (cd in && sha256sum -c ISO-SHA256)
+          df -h /
+      - name: Test UEFI live ISO, installation, login, rebuild and reboot
+        run: |
+          echo "runner cores: $(nproc), memory: $(free -g | awk '/^Mem:/{print $2}') GiB"
+          ls -l /dev/kvm || echo "no /dev/kvm on this runner"
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          sudo apt-get update $APT_OPTS
+          sudo apt-get install -y $APT_OPTS qemu-system-x86 ovmf
+          python3 scripts/vm-test.py in/ravnix-26.05-x86_64.iso --mode uefi 2>&1 | tee out-vm-uefi-tests.log
+      - name: Keep the UEFI test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ravnix-uefi-log
+          path: out-vm-uefi-tests.log
+          retention-days: 7
+  # The release is completed only after both firmware modes have passed.
+  stage:
+    needs: [bios, uefi]
+    if: success() && inputs.stage_release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - name: Download the test logs
+        uses: actions/download-artifact@v4
+        with:
+          name: ravnix-bios-log
+          path: out
+      - name: Download the UEFI test log
+        uses: actions/download-artifact@v4
+        with:
+          name: ravnix-uefi-log
+          path: out
+      - name: Record full firmware validation
+        run: |
+          set -euo pipefail
+          # The test report is only written when both logs really carry their
+          # success marker, so an untested image can never be published.
+          grep -q 'PASS: bios live' out/out-vm-bios-tests.log
+          grep -q 'PASS: uefi live' out/out-vm-uefi-tests.log
+          printf '%s\n' 'PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.' 'Physical hardware, Secure Boot, dual boot and encryption are not tested.' > out/VM-TESTS.txt
+          cat out/VM-TESTS.txt
+      - name: Complete the private draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="v26.05-r${GITHUB_RUN_NUMBER}"
+          for asset in out/VM-TESTS.txt out/out-vm-bios-tests.log out/out-vm-uefi-tests.log; do
             [[ -s $asset ]] || continue
             gh release upload "$tag" "$asset"
           done

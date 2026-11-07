@@ -8,6 +8,34 @@ validate_username() {
  [[ $1 =~ ^[a-z_][a-z0-9_-]{0,31}$ && $1 != root && $1 != ravnix && $1 != nixos ]] || fail 'Invalid or reserved username.'
  ! getent passwd "$1" >/dev/null || fail 'Username already exists; choose another.'
 }
+kernel_params_nix() {
+ # NixOS wants one parameter per list entry, and an entry must not contain
+ # spaces unless they are inside quotes.
+ local parameters=$1 parameter
+ [[ -n $parameters ]] || return 0
+ printf '  boot.kernelParams = ['
+ for parameter in $parameters; do printf ' "%s"' "$parameter"; done
+ printf ' ];\n'
+}
+parse_arguments() {
+ kernel_params=''
+ while (($# > 0)); do
+  case $1 in
+   --kernel-params)
+    (($# >= 2)) || fail 'Missing value for --kernel-params.'
+    kernel_params=$2
+    shift 2
+    ;;
+   --kernel-params=*)
+    kernel_params=${1#--kernel-params=}
+    shift
+    ;;
+   *) fail 'Unknown option. Use --help.';;
+  esac
+ done
+ # The parameters end up in a Nix string, so only plain characters are allowed.
+ [[ -z $kernel_params || $kernel_params =~ ^[A-Za-z0-9=,.:/+@%_-]+(\ [A-Za-z0-9=,.:/+@%_-]+)*$ ]] || fail 'Kernel parameters contain unsupported characters.'
+}
 validate_disk() {
  local disk=$1 mounts types read_only size name holders
  [[ -b $disk ]] || fail 'Select a block device.'
@@ -41,12 +69,13 @@ unmount_target() {
 }
 main() {
  if [[ ${1:-} == --help || ${1:-} == -h ]]; then
-  echo 'Usage: sudo ravnix-install'
+  echo 'Usage: sudo ravnix-install [--kernel-params "<parameters>"]'
   echo 'Text installer: dedicated whole disk, GPT/ext4, BIOS or UEFI; internet; 16 GiB minimum.'
   echo 'Erases selected disk only after exact confirmation. No dual boot, encryption, LVM or RAID.'
+  echo 'Extra kernel parameters, for example "console=ttyS0,115200n8" for a serial console.'
   return
  fi
- (($# == 0)) || fail 'Unknown option. Use --help.'
+ parse_arguments "$@"
  [[ $EUID == 0 ]] || fail 'Run sudo ravnix-install.'
  [[ -t 0 && -t 1 ]] || fail 'Interactive terminal required.'
  [[ -f /etc/ravnix/live && -f /etc/ravnix/source/flake.lock ]] || fail 'Run from the RAVNIX live ISO.'
@@ -121,7 +150,7 @@ main() {
   time.timeZone = "$timezone";
   users.users."$username" = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "networkmanager" ];
+    extraGroups = [ "wheel" "networkmanager" "video" "render" "input" "lp" "scanner" "dialout" ];
   };
   boot.loader.grub = {
     enable = true;
@@ -130,7 +159,7 @@ main() {
     efiInstallAsRemovable = $(if [[ $mode == uefi ]]; then echo true; else echo false; fi);
   };
   boot.loader.efi = { canTouchEfiVariables = false; efiSysMountPoint = "/boot/efi"; };
-}
+$(kernel_params_nix "${kernel_params:-}")}
 HOST
  # Flakes use host.nix + hardware-configuration.nix. The upstream channel-style
  # configuration is not used; replace it with an equivalent import for clarity.
@@ -138,7 +167,18 @@ HOST
 { ... }: { imports = [ ./modules/base.nix ./hardware-configuration.nix ./host.nix ]; }
 CONFIG
  echo 'Building and installing the pinned RAVNIX configuration...'
- nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd
+ # The installation copies roughly ten gigabytes into the new store and needs
+ # the network for the paths that are not in the live image. One interrupted
+ # transfer must not abort an installation that has already erased the disk:
+ # nix gets longer timeouts for a slow or flaky connection, it retries a
+ # failed download more often than the default five times, and if a substitute
+ # still cannot be fetched it builds that single path from source instead of
+ # failing the whole installation. The live image already carries the
+ # bootloader and the initial ramdisk tools, so in practice nothing has to be
+ # downloaded at all.
+ nixos-install --root /mnt --flake path:/mnt/etc/nixos#ravnix --no-root-passwd \
+  --option fallback true --option connect-timeout 30 \
+  --option stalled-download-timeout 120 --option download-attempts 10
  echo "Set password for $username (required for login and sudo):"
  nixos-enter --root /mnt --command "passwd $username"
  # A successful passwd command is required before unmounting or offering reboot.
