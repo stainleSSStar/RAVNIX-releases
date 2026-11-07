@@ -72,7 +72,41 @@ class VMProtocol(unittest.TestCase):
             vm.test_mode(Path('unused.iso'),'bios',Path('.'))
         deadlines=[call.kwargs.get('deadline') for call in session.call_args_list]
         self.assertEqual(deadlines[0],vm.LIVE_DEADLINE)
-        self.assertEqual(deadlines[1:],[vm.SESSION_DEADLINE,vm.SESSION_DEADLINE])
+        # The installed system, the rebuilt system, the live session of the
+        # graphical installation and the system it produces.
+        self.assertEqual(deadlines[1:],[vm.SESSION_DEADLINE,vm.SESSION_DEADLINE,
+                                        vm.LIVE_DEADLINE,vm.SESSION_DEADLINE])
+
+    def test_the_graphical_installation_is_tested_as_well(self):
+        # The graphical installer has to end with the same system as the text
+        # installer, so it is installed, booted and checked in the test too.
+        source=(Path(__file__).resolve().parents[1]/'scripts/vm-test.py').read_text()
+        self.assertIn('def graphical_installation(', source)
+        self.assertIn('graphical_installation(directory,mode,disk,iso,accel,out,phase)', source)
+        self.assertIn('--non-interactive --root /mnt', source)
+        self.assertIn('RAVNIX_GRAPHICAL_OK', source)
+        self.assertIn('text and graphical installation', source)
+
+    def test_the_graphical_target_is_prepared_the_way_the_installer_expects(self):
+        # The graphical installer partitions the disk and mounts the target
+        # before the installation runs. The layout is the same on a BIOS and on
+        # a UEFI machine: an EFI system partition at the place where the
+        # configuration expects it, a partition for the BIOS bootloader and the
+        # root filesystem.
+        script=vm.partition_script('/dev/nvme0n1','uefi')
+        result=subprocess.run(['bash','-n','-c',script],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('device=/dev/nvme0n1',script)
+        self.assertIn('"${device}p3"',script)
+        self.assertIn('mount -t vfat "$esp" /mnt/boot/efi',script)
+        # A UEFI machine keeps two megabytes in front of the first partition.
+        self.assertIn('mkpart ESP fat32 2MiB 514MiB',script)
+        bios=vm.partition_script('/dev/sda','bios')
+        # A BIOS machine keeps one megabyte in front of the first partition.
+        self.assertIn('mkpart ESP fat32 1MiB 513MiB',bios)
+        # GRUB writes the BIOS bootloader into a partition of its own.
+        self.assertIn('parted -s "$device" set 2 bios_grub on',bios)
+        self.assertIn('mkpart BIOSBOOT 513MiB 521MiB',bios)
 
     def test_a_failed_expectation_names_both_limits(self):
         # A failure has to say which limit was reached, otherwise a run that

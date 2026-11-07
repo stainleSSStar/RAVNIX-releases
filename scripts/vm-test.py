@@ -304,6 +304,95 @@ def command(directory, mode, disk, iso=None, accel='tcg'):
     return args,serial
 
 
+def partition_script(device, mode):
+    # The layout that the graphical installer prepares before it hands over to
+    # the installation. The partitioning module of Calamares creates the same
+    # layout on a BIOS and on a UEFI machine: a GPT disk with an EFI system
+    # partition at /boot/efi, a small partition that holds the BIOS bootloader
+    # and the ext4 root filesystem. The gap in front of the first partition is
+    # two megabytes on a UEFI machine and one megabyte on a BIOS machine.
+    gap='2MiB' if mode=='uefi' else '1MiB'
+    esp_end='514MiB' if mode=='uefi' else '513MiB'
+    bios_end='522MiB' if mode=='uefi' else '521MiB'
+    return '''set -e
+device=DEVICE
+parted -s "$device" mklabel gpt
+parted -s "$device" mkpart ESP fat32 GAP ESPEND
+parted -s "$device" set 1 esp on
+parted -s "$device" mkpart BIOSBOOT ESPEND BIOSEND
+parted -s "$device" set 2 bios_grub on
+parted -s "$device" mkpart primary ext4 BIOSEND 100%
+partprobe "$device"
+udevadm settle
+case "$device" in
+  *[0-9]) root="${device}p3"; esp="${device}p1";;
+  *) root="${device}3"; esp="${device}1";;
+esac
+mkfs.ext4 -F -L RAVNIX_ROOT "$root"
+mount -t ext4 "$root" /mnt
+mkfs.fat -F 32 -n RAVNIX_EFI "$esp"
+mkdir -p /mnt/boot/efi
+mount -t vfat "$esp" /mnt/boot/efi
+'''.replace('DEVICE', device).replace('GAP', gap).replace('ESPEND', esp_end).replace('BIOSEND', bios_end)
+
+
+def graphical_installation(directory, mode, disk, iso, accel, out, phase):
+    # The graphical installer has to end with the same system as the text
+    # installer, so the automated installation is tested as well. The graphical
+    # installer partitions the disk, mounts the target and sets the password of
+    # the new account; the installation itself is the same program the text
+    # installer runs.
+    device='/dev/sda' if mode=='bios' else '/dev/nvme0n1'
+    # The disk of the text installation is wiped: the graphical installer
+    # starts with an empty disk as well.
+    subprocess.run(['qemu-img','create','-f','raw',str(disk),'40G'],check=True)
+    args,serial=command(directory,mode,disk,iso,accel)
+    with VM(args,serial,out,f'vm-{mode}-graphical-live',deadline=LIVE_DEADLINE) as console:
+        quiet_bash(console,live=True)
+        phase.mark('graphical live session ready')
+        console.run(partition_script(device,mode),'RAVNIX_GRAPHICAL_TARGET')
+        phase.mark('graphical target prepared')
+        console.send(f"ravnix-install --non-interactive --root /mnt --disk {device} "
+                     "--hostname ravnix-graphical --username tester --timezone Europe/Warsaw "
+                     "|| printf '\\nRAVNIX_VM_FAIL\\n'\n")
+        print('WAIT: graphical installation', mode, flush=True)
+        console.expect(b'RAVNIX installation complete',timeout=INSTALL_STEP)
+        phase.mark('graphical installation')
+        # The graphical installer sets the password of the new account itself.
+        console.run(f"printf 'tester:{PASSWORD}\\n' | nixos-enter --root /mnt --command chpasswd; "
+                    'sync; umount -R /mnt','RAVNIX_GRAPHICAL_PASSWORD')
+        phase.mark('graphical password set')
+        poweroff(console)
+    args,serial=command(directory,mode,disk,accel=accel)
+    with VM(args,serial,out,f'vm-{mode}-graphical',deadline=SESSION_DEADLINE) as console:
+        console.expect(b'login:',timeout=1800)
+        console.send('tester\n')
+        console.expect(b'Password:',timeout=30)
+        console.send(PASSWORD+'\n')
+        quiet_bash(console)
+        phase.mark('graphical system booted')
+        console.run(HEALTH+'\ntest "$(hostname)" = ravnix-graphical\n'
+                    'test -f "$HOME/.config/fastfetch/config.jsonc"\n'
+                    'if sudo -n true; then false; fi\n','RAVNIX_GRAPHICAL_OK')
+        phase.mark('graphical system health check')
+        # The graphical installer runs the users module after the installation,
+        # and that module can set the password of the root account. The RAVNIX
+        # policy keeps the root account locked, and the installed system
+        # carries none of the installer commands.
+        console.send("sudo -k; sudo -p 'RAVNIX_SUDO_PASSWORD: ' bash --noprofile --norc\n")
+        console.expect(b'RAVNIX_SUDO_PASSWORD: ',timeout=30)
+        console.send(PASSWORD+'\n')
+        console.expect(b'# ',timeout=30)
+        console.run('test "$(passwd -S root | awk \'{print $2}\')" = L; '
+                    'for command in ravnix-install ravnix-guide nixos-install calamares; '
+                    'do if command -v "$command"; then false; fi; done; '
+                    'test ! -e /etc/ravnix/live; '
+                    'if grep -R -E "autologin.*ravnix|NOPASSWD" /etc/sudoers /etc/sudoers.d; then false; fi',
+                    'RAVNIX_GRAPHICAL_ROOT_OK')
+        phase.mark('graphical system root policy')
+        poweroff(console)
+
+
 def poweroff(console):
     # Keep consuming serial output: a full socket can block the guest during
     # shutdown, so waiting only on QEMU can deadlock an otherwise healthy VM.
@@ -399,7 +488,7 @@ def test_mode(iso, mode, out):
                 phase.mark(f'{stage} system booted')
                 console.run(HEALTH+'''\ntest "$(hostname)" = ravnix-test
 if getent passwd ravnix; then false; fi
-for command in ravnix-install ravnix-guide nixos-install; do if command -v "$command"; then false; fi; done
+for command in ravnix-install ravnix-guide nixos-install calamares; do if command -v "$command"; then false; fi; done
 test ! -e /etc/ravnix/live
 test -w /etc/nixos/host.nix || test -r /etc/nixos/host.nix
 if sudo -n true; then false; fi
@@ -424,7 +513,8 @@ grep -qE '[0-9]+[.][0-9]+' /tmp/ravnix-brave-version.txt
                     console.run('nixos-rebuild boot --flake path:/etc/nixos#ravnix','RAVNIX_REBUILD_OK',timeout=BUILD_STEP)
                     phase.mark('rebuild inside the installed system')
                 poweroff(console)
-        print(f'PASS: {mode} live, desktop, text installation, login, rebuild, reboot',flush=True)
+        graphical_installation(directory,mode,disk,iso,accel,out,phase)
+        print(f'PASS: {mode} live, desktop, text and graphical installation, login, rebuild, reboot',flush=True)
 
 
 def main():
@@ -438,7 +528,7 @@ def main():
     for mode in (['bios','uefi'] if args.mode=='both' else [args.mode]):
         test_mode(iso,mode,out)
     if args.mode=='both':
-        report.write_text('PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.\nPhysical hardware, Secure Boot, dual boot and encryption are not tested.\n')
+        report.write_text('PASS: BIOS and UEFI live, KDE Plasma desktop, text and graphical installation, password login, rebuild and reboot.\nPhysical hardware, Secure Boot, dual boot and encryption are not tested.\n')
 
 if __name__=='__main__':
     main()

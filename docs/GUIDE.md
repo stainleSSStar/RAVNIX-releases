@@ -3,9 +3,9 @@
 RAVNIX is an x86_64 NixOS 26.05 derivative with **KDE Plasma 6** as its desktop.
 It ships the Purple Neon theme (deep violet with pink and green accents), a
 custom 4K wallpaper, Fish as the shell, NetworkManager with a graphical
-network applet, the standard NixOS graphical installer and RAVNIX's own text
-installer. Secure Boot is not configured. Use BIOS or x86_64 UEFI with Secure
-Boot off.
+network applet, a graphical installer and RAVNIX's own text installer. Both
+installers install the same RAVNIX configuration. Secure Boot is not configured.
+Use BIOS or x86_64 UEFI with Secure Boot off.
 
 ## Getting the image
 
@@ -36,8 +36,8 @@ enabled.
 * **Tools** — Midnight Commander, btop and fastfetch (with the RAVNIX "R"
   logo). `ravnix-guide` prints this guide offline.
 * **Installers** — the desktop has shortcuts for both installers: *Install
-  RAVNIX* (the text installer below) and *Install NixOS* (the standard
-  graphical Calamares installer).
+  RAVNIX* (the text installer below) and *Install RAVNIX graphically* (the
+  graphical installer below). Both install the same RAVNIX system.
 
 Installation works without an internet connection: the live medium already
 carries the bootloader, the tools that build the initial ramdisk and the
@@ -114,11 +114,30 @@ installer command in the installed PATH.
 
 ## Graphical installation
 
-The *Install NixOS* desktop shortcut starts the standard NixOS graphical
-installer (Calamares). It offers partitioning, a user account, a locale and a
-desktop choice, and installs NixOS with `nixos-install`. It installs a plain
-NixOS configuration rather than the RAVNIX one — use *Install RAVNIX* when you
-want the RAVNIX desktop, theme and preinstalled applications.
+The *Install RAVNIX graphically* desktop shortcut starts the graphical installer
+(Calamares) with the RAVNIX branding. It walks through the language, the
+keyboard, the user account, the partitioning and the summary, and then
+installs **the RAVNIX configuration** — the same one the text installer
+writes, with the Purple Neon theme, the wallpaper, Fish, Brave Origin, the
+preinstalled applications and the branded bootloader. The graphical installer
+is the same program with a graphical front end, so both paths cannot drift
+apart.
+
+Because the graphical installer prepares the disk itself, it is the
+comfortable way to install RAVNIX on a desktop. Use the text installer when
+you want to see every step and every confirmation.
+
+The partitioning of the graphical installer is the same layout on a BIOS and
+on a UEFI machine: a GPT disk with a 512 MiB FAT32 EFI system partition at
+`/boot/efi`, a small partition that holds the BIOS bootloader and the rest as
+ext4. The disk needs 16 GiB. There is no choice of the filesystem, no
+encryption, no LVM and no swap partition, because the RAVNIX configuration
+cannot unlock an encrypted root and the bootloader reads ext4. An
+installation on a layout that does not match stops with a message instead of
+leaving a machine that does not boot.
+
+Neither installer asks for a desktop: RAVNIX is one desktop, and both install
+the same one.
 
 ## Configuration, rebuild and rollback
 

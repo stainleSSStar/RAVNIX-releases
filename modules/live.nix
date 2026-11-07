@@ -9,6 +9,64 @@ let
   guide = pkgs.writeShellScriptBin "ravnix-guide" ''
     exec ${pkgs.coreutils}/bin/cat ${../docs/GUIDE.md}
   '';
+  # The graphical installer installs RAVNIX instead of plain NixOS. The stock
+  # Calamares module writes a configuration of its own and installs stock
+  # NixOS, so a machine installed with it carries none of the RAVNIX branding.
+  # Our own module runs the RAVNIX installer instead, which makes the
+  # graphical and the text installer produce the same system.
+  #
+  # Calamares looks for modules in the directories of "modules-search" and
+  # uses the first module it finds for a name, so the directory of our module
+  # is put in front of the one of the NixOS extensions.
+  calamaresModules = pkgs.runCommand "ravnix-calamares-modules" { } ''
+    mkdir -p $out/lib/calamares/modules/nixos
+    cp ${./calamares/nixos/module.desc} $out/lib/calamares/modules/nixos/module.desc
+    substitute ${./calamares/nixos/main.py} $out/lib/calamares/modules/nixos/main.py \
+      --replace-fail @ravnixInstaller@ ${installer}/bin/ravnix-install
+  '';
+  # The wizard shows the branding of RAVNIX instead of the one of NixOS.
+  calamaresBranding = pkgs.linkFarm "ravnix-calamares-branding" [
+    "share/calamares/branding/ravnix/branding.desc" ../modules/calamares/branding/ravnix/branding.desc
+    "share/calamares/branding/ravnix/show.qml" ../modules/calamares/branding/ravnix/show.qml
+    "share/calamares/branding/ravnix/ravnix-logo.png" ../assets/calamares/ravnix-logo.png
+    "share/calamares/branding/ravnix/ravnix-welcome.png" ../assets/calamares/ravnix-welcome.png
+    "share/calamares/branding/ravnix/ravnix-background.jpg" ../assets/calamares/ravnix-background.jpg
+  ];
+  calamaresExtensions = pkgs.calamares-nixos-extensions.overrideAttrs (old: {
+    postInstall = (old.postInstall or "") + ''
+      substituteInPlace $out/etc/calamares/settings.conf \
+        --replace-fail "modules-search: [ local, $out/lib/calamares/modules ]" \
+        "modules-search: [ local, ${calamaresModules}/lib/calamares/modules, $out/lib/calamares/modules ]" \
+        --replace-fail "branding: nixos" "branding: ravnix" \
+        --replace-fail "  - packagechooser" "" \
+        --replace-fail "  - notesqml@unfree" ""
+      # The partitioning of the graphical installer has to produce the layout
+      # the RAVNIX configuration expects: the EFI system partition at /boot/efi
+      # and a partition for the BIOS bootloader on a GPT disk. The stock
+      # configuration mounts the EFI system partition at /boot and offers
+      # encryption and LVM, which the RAVNIX configuration cannot use.
+      cp ${./calamares/config/partition.conf} $out/etc/calamares/modules/partition.conf
+      # The installed system needs the same space as the text installer asks
+      # for, so the graphical installer refuses a smaller disk right away.
+      sed -i -E 's/^[[:space:]]*requiredStorage:.*$/requiredStorage: 16/' \
+        $out/etc/calamares/modules/welcome.conf
+      # The RAVNIX policy keeps the root account locked: the account of the
+      # administrator is the only one with a password, and it needs one for
+      # sudo. Without this the graphical installer would ask for a root
+      # password and unlock the root account.
+      sed -i -E 's/^[[:space:]]*setRootPassword:.*$/setRootPassword: false/' \
+        $out/etc/calamares/modules/users.conf
+    '';
+  });
+  calamares = pkgs.calamares-nixos.override {
+    calamares-nixos-extensions = calamaresExtensions;
+    extraWrapperArgs = [
+      "--prefix XDG_DATA_DIRS : ${calamaresBranding}/share"
+      "--prefix XDG_DATA_DIRS : ${calamaresExtensions}/share"
+      "--prefix XDG_CONFIG_DIRS : ${calamaresExtensions}/etc"
+      "--add-flag --xdg-config"
+    ];
+  };
 in {
   imports = [
     "${modulesPath}/installer/cd-dvd/iso-image.nix"
@@ -70,7 +128,7 @@ in {
     nixos-generate-config.enable = true;
     nixos-install.enable = true;
   };
-  environment.systemPackages = [ installer guide ];
+  environment.systemPackages = [ installer guide calamares ];
   # The installation builds the initial ramdisk and installs the bootloader
   # inside the guest, so the live image has to carry everything the installed
   # system needs. Without these paths the installation depends on the binary
@@ -116,10 +174,18 @@ in {
     desktop=/home/ravnix/Desktop
     mkdir -p "$desktop"
     chown ravnix /home/ravnix "$desktop"
-    ln -sfT ${pkgs.calamares-nixos}/share/applications/calamares.desktop \
-      "$desktop/install-nixos-graphical.desktop"
     ln -sfT ${pkgs.kdePackages.konsole}/share/applications/org.kde.konsole.desktop \
       "$desktop/ravnix-guide.desktop"
+    cat > "$desktop/install-ravnix-graphical.desktop" <<EOF
+    [Desktop Entry]
+    Type=Application
+    Name=Install RAVNIX graphically
+    Comment=Install RAVNIX with the graphical installer
+    Exec=${calamares}/bin/calamares
+    Icon=drive-harddisk
+    Terminal=false
+    Categories=System;
+    EOF
     cat > "$desktop/install-ravnix.desktop" <<EOF
     [Desktop Entry]
     Type=Application
