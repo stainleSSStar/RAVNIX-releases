@@ -382,9 +382,8 @@ parted() { echo "$MOCK_TABLE"; }
 
     @unittest.skipUnless(shutil.which('nix-instantiate'), 'Nix evaluator runs in Linux CI')
     def test_generated_host_evaluates_with_keyword_usernames(self):
-        source=(ROOT/'scripts/install.sh').read_text()
-        template=re.search(r'cat > /mnt/etc/nixos/host\.nix <<HOST\n(.*?)\nHOST',
-                           source, re.S).group(1)
+        # The configuration of the machine is written by the function both
+        # installers call, so the test calls it as well.
         names=['operator', 'if', 'then', 'else', 'assert', 'with', 'let', 'in',
                'rec', 'inherit', 'or', 'alice-bob']
         with tempfile.TemporaryDirectory(prefix='ravnix-config-') as temporary:
@@ -394,9 +393,8 @@ parted() { echo "$MOCK_TABLE"; }
                     with self.subTest(mode=mode, username=name):
                         generated=self.shell(
                             'getent() { return 2; }; validate_username '+shlex.quote(name)+'\n'
-                            'hostname=ravnix-test; timezone=Europe/Warsaw; '
-                            'bootdevice=/dev/disk/by-id/test; mode='+mode+'; '
-                            'username='+shlex.quote(name)+'\ncat <<HOST\n'+template+'\nHOST\n')
+                            'host_configuration ravnix-test '+shlex.quote(name)+
+                            ' Europe/Warsaw '+mode+' /dev/disk/by-id/test')
                         self.assertEqual(generated.returncode, 0, generated.stderr)
                         host.write_text(generated.stdout)
                         expression='import (builtins.toPath '+json.dumps(str(host))+') {}'
