@@ -39,9 +39,16 @@ assert 'hardware.graphics.enable32Bit = true;' in desktop
 assert 'hardware.graphics.extraPackages' in desktop
 assert 'hardware.bluetooth.enable = true;' in desktop
 assert 'programs.partition-manager.enable = true;' in desktop
-for package in ('mc', 'btop', 'fastfetch', 'calamares-nixos', 'braveOrigin'):
+for package in ('mc', 'btop', 'fastfetch', 'braveOrigin'):
     assert package in desktop, package
 assert '../pkgs/brave-origin.nix' in desktop
+# The graphical installer is on the live medium and installs RAVNIX itself.
+assert 'calamares-nixos' not in desktop
+assert 'calamares' in live
+# The graphical installer partitions the disk and creates the filesystems
+# itself, so the live medium has to carry the tools for it.
+for tool in ('parted', 'e2fsprogs', 'dosfstools'):
+    assert tool in live, tool
 # NixOS never copies /etc/skel into a new home directory, so the profile has
 # to be seeded into the accounts by the system itself.
 assert 'users-ravnix-profile' in desktop
@@ -59,6 +66,13 @@ for asset in ('RAVNIX-PurpleNeon.colorscheme', 'ravnix-wallpaper.jpg', 'fastfetc
     assert (ROOT / 'assets' / asset).is_file(), asset
 for asset in ('Main.qml', 'metadata.desktop', 'theme.conf', 'background.jpg', 'angle-down.png'):
     assert (ROOT / 'assets' / 'sddm-ravnix' / asset).is_file(), asset
+for asset in ('ravnix-logo.png', 'ravnix-welcome.png', 'ravnix-background.jpg'):
+    assert (ROOT / 'assets' / 'calamares' / asset).is_file(), asset
+for asset in ('branding.desc', 'show.qml'):
+    assert (ROOT / 'modules' / 'calamares' / 'branding' / 'ravnix' / asset).is_file(), asset
+for asset in ('main.py', 'module.desc'):
+    assert (ROOT / 'modules' / 'calamares' / 'nixos' / asset).is_file(), asset
+assert (ROOT / 'modules' / 'calamares' / 'config' / 'partition.conf').is_file()
 assert (ROOT / 'pkgs' / 'brave-origin.nix').is_file()
 
 # The wallpaper has to fill a 1920x1080 display.

@@ -104,9 +104,8 @@ in
     libva-utils
     kde.xdg-desktop-portal-kde
     kde.plasma-disks
-    # The standard NixOS graphical installer, next to RAVNIX's own installer.
-    calamares-nixos
-    calamares-nixos-extensions
+    # The graphical installer belongs to the live medium, not to the installed
+    # system: the installed system is the result of an installation.
     gparted
     braveOrigin
     branding

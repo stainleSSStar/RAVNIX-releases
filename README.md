@@ -13,8 +13,9 @@ base/live-only installer/tested-release approach.
 - Full redistributable firmware, CPU microcode, 32/64-bit Mesa with VA-API,
   PipeWire audio, Bluetooth, printing and firmware updates, so the same image
   works in a virtual machine and on real hardware.
-- Two installers: the **standard NixOS graphical installer** (Calamares) and
-  RAVNIX's own text installer, which installs the pinned RAVNIX configuration.
+- Two installers that install the **same** RAVNIX configuration: the graphical
+  installer (Calamares, with the RAVNIX branding) and RAVNIX's own text
+  installer.
 - Explicit minimal NixOS configuration with a pinned Nixpkgs revision and lockfile.
 - Real ISO and installation tests in both firmware modes before release publication.
 - Password login/sudo, locked root, no installed autologin or SSH server.
@@ -36,6 +37,9 @@ The ISO is `result/iso/ravnix-26.05-x86_64.iso`. Source checks and evaluation:
 python3 scripts/check.py
 python3 -m unittest discover -s tests -v
 nix flake check --no-build
+# The release output, evaluated on every system: a check on another
+# architecture does not reach it.
+nix eval --raw .#packages.x86_64-linux.default.drvPath
 ```
 
 Push/PR runs validation. **Actions → Build RAVNIX ISO → Run workflow** builds
@@ -73,8 +77,12 @@ The firmware/kernel coverage retains necessary dependencies;
 Nix store path counts are not directly comparable to Arch package counts.
 
 Install from the booted ISO with `sudo ravnix-install`, or use the *Install
-NixOS* desktop shortcut for the standard graphical installer. **The text
-installer erases all data on the selected disk after exact confirmation.**
+RAVNIX graphically* desktop shortcut for the graphical installer. Both install
+the same RAVNIX system. **The text installer erases all data on the selected
+disk after exact confirmation.** The graphical installer prepares the same
+layout on a BIOS and on a UEFI machine: a GPT disk with a 512 MiB FAT32 EFI
+system partition at `/boot/efi`, a small partition for the BIOS bootloader and
+ext4 for the rest.
 The installation works without an internet connection, because the medium
 carries the bootloader, the ramdisk tools and the pinned Nixpkgs source; a
 dedicated 16 GiB+ disk is required. The installed system keeps the pinned
@@ -93,6 +101,7 @@ validation on the target machines.
 | `modules/base.nix` | Shared system: network, users, Fish, security policy, branding of GRUB, pinned Nixpkgs source |
 | `modules/desktop.nix` | Plasma 6, Purple Neon theme, wallpaper, greeter theme, applications, drivers |
 | `modules/live.nix` | Live medium: autologin, boot splash images, installer shortcuts |
+| `modules/calamares/` | The graphical installer: its installation module, its partitioning and the RAVNIX branding |
 | `assets/` | Wallpaper, colour schemes, greeter theme, fastfetch/btop branding, boot splash |
 | `pkgs/brave-origin.nix` | Repackaging of the Brave Origin `.deb` (not in nixpkgs) |
 

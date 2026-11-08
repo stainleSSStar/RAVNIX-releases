@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: no
+# SPDX-License-Identifier: CC0-1.0
+#
+# The branding of the RAVNIX graphical installer. The stock NixOS branding
+# would show the NixOS snowflake and the NixOS names in the wizard, so the
+# installer would not look like the distribution it installs.
+---
+componentName:  ravnix
+
+### WELCOME / OVERALL WORDING
+welcomeStyleCalamares:   false
+welcomeExpandingLogo:   true
+
+### WINDOW CONFIGURATION
+windowExpanding:    normal
+windowSize: 800px,520px
+windowPlacement: center
+
+### PANELS CONFIGURATION
+sidebar: widget
+navigation: widget
+
+### STRINGS, IMAGES AND COLORS
+strings:
+    productName:         RAVNIX
+    shortProductName:    RAVNIX
+    version:
+    shortVersion:
+    versionedName:       RAVNIX
+    shortVersionedName:  RAVNIX
+    bootloaderEntryName: RAVNIX
+    productUrl:          https://github.com/stainleSSStar/RAVNIX
+    supportUrl:          https://github.com/stainleSSStar/RAVNIX/blob/main/docs/GUIDE.md
+    knownIssuesUrl:      https://github.com/stainleSSStar/RAVNIX/issues
+    releaseNotesUrl:     https://github.com/stainleSSStar/RAVNIX-releases
+    donateUrl:
+
+images:
+    productIcon:         "ravnix-logo.png"
+    productLogo:         "ravnix-logo.png"
+    productWelcome:      "ravnix-welcome.png"
+    productWallpaper:    "ravnix-background.jpg"
+
+# The Purple Neon colours of the distribution.
+style:
+   SidebarBackground:        "#1a1423"
+   SidebarText:              "#f5f0ff"
+   SidebarTextCurrent:       "#1a1423"
+   SidebarBackgroundCurrent: "#a6f28a"
+
+### SLIDESHOW
+slideshow:               "show.qml"
+slideshowAPI: 2
+
+uploadServer :
+    type :    "none"

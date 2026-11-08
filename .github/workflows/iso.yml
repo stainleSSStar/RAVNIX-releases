@@ -305,7 +305,7 @@ jobs:
           # success marker, so an untested image can never be published.
           grep -q 'PASS: bios live' out/out-vm-bios-tests.log
           grep -q 'PASS: uefi live' out/out-vm-uefi-tests.log
-          printf '%s\n' 'PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.' 'Physical hardware, Secure Boot, dual boot and encryption are not tested.' > out/VM-TESTS.txt
+          printf '%s\n' 'PASS: BIOS and UEFI live, KDE Plasma desktop, text and graphical installation, password login, rebuild and reboot.' 'Physical hardware, Secure Boot, dual boot and encryption are not tested.' > out/VM-TESTS.txt
           cat out/VM-TESTS.txt
       - name: Complete the private draft release
         env:

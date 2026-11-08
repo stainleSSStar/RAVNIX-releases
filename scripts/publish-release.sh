@@ -36,12 +36,12 @@ for part in parts:
         for chunk in iter(lambda: f.read(8*1024*1024), b''):
             whole.update(chunk)
 assert whole.hexdigest()==(p/'ISO-SHA256').read_text().split()[0], 'reassembled image does not match ISO-SHA256'
-assert (p/'VM-TESTS.txt').read_text().startswith('PASS: BIOS and UEFI live, KDE Plasma desktop, text installation, password login, rebuild and reboot.\n')
+assert (p/'VM-TESTS.txt').read_text().startswith('PASS: BIOS and UEFI live, KDE Plasma desktop, text and graphical installation, password login, rebuild and reboot.\n')
 assert (p/'build-info.txt').is_file() and (p/'flake.lock').is_file()
 assert (p/'PARTS.txt').is_file()
 print(f'{len(parts)} parts verified, reassembled image matches ISO-SHA256, full BIOS/UEFI test report verified.')
 PY
-notes="NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the standard NixOS graphical installer (Calamares) and RAVNIX's own text installer. The image is published in parts because GitHub limits a release asset to 2 GiB: run 'cat ravnix-26.05-x86_64.iso.part-* > ravnix-26.05-x86_64.iso' and verify it against ISO-SHA256. BIOS and UEFI live, actual installation, password-required login/sudo, pinned rebuild and reboot passed. See build-info.txt for the exact source, PARTS.txt, GUIDE.md, VM-TESTS.txt and SHA256SUMS. Physical hardware and Secure Boot are outside VM coverage."
+notes="NixOS 26.05 derivative with KDE Plasma 6, the Purple Neon theme, a custom wallpaper and a branded GRUB bootloader. Fish shell, graphical networking, Brave Origin, Midnight Commander, btop and fastfetch are preinstalled. Both installers are included: the graphical installer, which installs the RAVNIX configuration just like the text installer does, and RAVNIX's own text installer. The image is published in parts because GitHub limits a release asset to 2 GiB: run 'cat ravnix-26.05-x86_64.iso.part-* > ravnix-26.05-x86_64.iso' and verify it against ISO-SHA256. BIOS and UEFI live, text and graphical installation, password-required login/sudo, pinned rebuild and reboot passed. See build-info.txt for the exact source, PARTS.txt, GUIDE.md, VM-TESTS.txt and SHA256SUMS. Physical hardware and Secure Boot are outside VM coverage."
 title="RAVNIX 26.05 Desktop (${tag})"
 if [[ $source_repo == "$release_repo" ]]; then
   # The draft already carries the tested parts in this repository.

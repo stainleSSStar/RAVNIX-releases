@@ -149,6 +149,153 @@ class InstallerGuards(unittest.TestCase):
         # the installed system does not get the source.
         self.assertIn('./modules/base.nix', (ROOT/'scripts/install.sh').read_text())
 
+    def test_the_prepared_layout_has_to_match_what_ravnix_installs(self):
+        # The graphical installer prepares the disk. A layout that the
+        # bootloader of the distribution cannot read would leave a system that
+        # does not boot, so the installation stops before it writes anything.
+        mocks = '''
+findmnt() {
+  case "$*" in
+    *"-o FSTYPE --target"*)
+      case "${!#}" in
+        */boot/efi) echo "$MOCK_ESP_FSTYPE";;
+        *) echo "$MOCK_FSTYPE";;
+      esac;;
+    *"-o SOURCE --target"*) echo "$MOCK_SOURCE";;
+    *"-o TARGET"*) echo "$MOCK_MOUNTS";;
+    *) :;;
+  esac
+}
+lsblk() { echo "$MOCK_SIZE"; }
+parted() { echo "$MOCK_TABLE"; }
+'''
+        def layout(mode, fstype='ext4', source='/dev/sda3', size=40 * 1024 ** 3,
+                   mounts='/tmp/target\n/tmp/target/boot/efi', esp='vfat', table=''):
+            environment = dict(
+                os.environ,
+                MOCK_FSTYPE=fstype, MOCK_SOURCE=source, MOCK_SIZE=str(size),
+                MOCK_MOUNTS=mounts, MOCK_ESP_FSTYPE=esp, MOCK_TABLE=table,
+            )
+            return subprocess.run(
+                ['bash', '-c', FUNCTIONS + mocks +
+                 f'check_prepared_layout /tmp/target /dev/sda {mode}'],
+                capture_output=True, text=True, env=environment)
+
+        # A UEFI machine with its EFI system partition at the place where the
+        # configuration expects it.
+        uefi = layout('uefi')
+        self.assertEqual(uefi.returncode, 0, uefi.stderr)
+        # A BIOS machine with a partition for the BIOS bootloader.
+        bios = layout('bios', table='Partition Table: gpt\n 2 513MB 521MB bios_grub')
+        self.assertEqual(bios.returncode, 0, bios.stderr)
+        # A BIOS machine with an MBR partition table carries the bootloader in
+        # the space between the MBR and the first partition.
+        mbr = layout('bios', table='Partition Table: msdos')
+        self.assertEqual(mbr.returncode, 0, mbr.stderr)
+        # Without the EFI system partition there is no bootloader on a UEFI
+        # machine.
+        without_esp = layout('uefi', mounts='/tmp/target')
+        self.assertNotEqual(without_esp.returncode, 0)
+        self.assertIn('EFI system partition is not mounted', without_esp.stderr)
+        # An EFI system partition that is not a FAT filesystem is useless.
+        wrong_esp = layout('uefi', esp='ext4')
+        self.assertNotEqual(wrong_esp.returncode, 0)
+        self.assertIn('FAT filesystem', wrong_esp.stderr)
+        # Without a partition for the BIOS bootloader there is no bootloader on
+        # a BIOS machine.
+        without_bios = layout('bios', table='Partition Table: gpt')
+        self.assertNotEqual(without_bios.returncode, 0)
+        self.assertIn('BIOS bootloader', without_bios.stderr)
+        # A filesystem the bootloader cannot read.
+        for filesystem in ['btrfs', 'f2fs', 'xfs']:
+            with self.subTest(filesystem=filesystem):
+                result = layout('uefi', fstype=filesystem)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('RAVNIX installs ext4', result.stderr)
+        # An encrypted root is not unlocked by the RAVNIX configuration.
+        encrypted = layout('uefi', source='/dev/mapper/luks-1234')
+        self.assertNotEqual(encrypted.returncode, 0)
+        self.assertIn('encrypted', encrypted.stderr)
+        # A disk that is too small for the installed system.
+        small = layout('uefi', size=8 * 1024 ** 3)
+        self.assertNotEqual(small.returncode, 0)
+        self.assertIn('smaller than 16 GiB', small.stderr)
+
+    def test_the_graphical_target_is_a_mount_point_and_not_an_installation(self):
+        # The graphical installer formats the disk and mounts it empty, so the
+        # target has no /etc yet. The installer has to accept such a target and
+        # refuse a directory that is not mounted and a target that already
+        # holds a NixOS installation.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'target'
+            target.mkdir()
+            prepared = self.shell(f'findmnt() {{ echo {target}; }}; check_target_mount {target}')
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            unmounted = self.shell(f'findmnt() {{ echo /somewhere/else; }}; check_target_mount {target}')
+            self.assertNotEqual(unmounted.returncode, 0)
+            self.assertIn('not a mount point', unmounted.stderr)
+            (target / 'etc').mkdir()
+            (target / 'etc' / 'NIXOS').write_text('')
+            installed = self.shell(f'findmnt() {{ echo {target}; }}; check_target_mount {target}')
+            self.assertNotEqual(installed.returncode, 0)
+            self.assertIn('already holds a NixOS installation', installed.stderr)
+            missing = self.shell(f'findmnt() {{ echo {target}; }}; check_target_mount {target}/nothing')
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn('does not exist', missing.stderr)
+
+    def test_the_automated_installation_needs_its_values(self):
+        # The graphical installer prepares the disk and collects the answers,
+        # so it calls the installation with the values instead of asking.
+        missing = self.shell('parse_arguments --non-interactive')
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn('automated installation needs', missing.stderr)
+        complete = self.shell('parse_arguments --non-interactive --root /tmp/target '
+                               '--disk /dev/sda --hostname ravnix-test --username tester; '
+                               'echo "$root $disk $hostname $username $interactive"')
+        self.assertEqual(complete.returncode, 0, complete.stderr)
+        self.assertEqual(complete.stdout.strip(), '/tmp/target /dev/sda ravnix-test tester 0')
+        for missing_value in ['--root', '--disk', '--hostname', '--username']:
+            with self.subTest(option=missing_value):
+                result = self.shell(f'parse_arguments --non-interactive {missing_value}')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Missing value', result.stderr)
+
+    def test_the_automated_options_belong_to_the_automated_installation(self):
+        # The text installer asks for the disk itself and erases it only after
+        # the exact confirmation, so it must not accept a disk from outside.
+        for option in ['--disk /dev/sda', '--root /tmp/target', '--hostname box',
+                       '--username tester', '--timezone Europe/Warsaw']:
+            with self.subTest(option=option):
+                result = self.shell('parse_arguments ' + option)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('automated installation', result.stderr)
+
+    def test_the_configuration_of_the_machine_carries_the_answers(self):
+        # Both installers write the same configuration, so the graphical one
+        # ends with the same system as the text one.
+        bios = self.shell('host_configuration ravnix-test tester Europe/Warsaw bios /dev/sda')
+        self.assertEqual(bios.returncode, 0, bios.stderr)
+        configuration = bios.stdout
+        self.assertIn('networking.hostName = "ravnix-test";', configuration)
+        self.assertIn('time.timeZone = "Europe/Warsaw";', configuration)
+        self.assertIn('users.users."tester" = {', configuration)
+        self.assertIn('enable = true;', configuration)
+        self.assertIn('device = "/dev/sda";', configuration)
+        self.assertIn('efiSupport = false;', configuration)
+        self.assertIn('efiInstallAsRemovable = false;', configuration)
+        uefi = self.shell('host_configuration ravnix-test tester Europe/Warsaw uefi /dev/sda')
+        self.assertIn('device = "nodev";', uefi.stdout)
+        self.assertIn('efiSupport = true;', uefi.stdout)
+        self.assertIn('efiInstallAsRemovable = true;', uefi.stdout)
+
+    def test_both_installers_install_the_same_pinned_configuration(self):
+        # The graphical installer has to end with the same system as the text
+        # installer, so both install the flake of the copied source tree.
+        source = (ROOT/'scripts/install.sh').read_text()
+        self.assertIn('--flake "path:$root/etc/nixos#ravnix"', source)
+        self.assertIn('write_configuration "$root"', source)
+        self.assertIn('write_configuration /mnt', source)
+
     def test_the_live_image_carries_the_installation_dependencies(self):
         # The installation builds the initial ramdisk and installs the
         # bootloader inside the guest. When those paths are missing from the
@@ -257,9 +404,8 @@ class InstallerGuards(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('nix-instantiate'), 'Nix evaluator runs in Linux CI')
     def test_generated_host_evaluates_with_keyword_usernames(self):
-        source=(ROOT/'scripts/install.sh').read_text()
-        template=re.search(r'cat > /mnt/etc/nixos/host\.nix <<HOST\n(.*?)\nHOST',
-                           source, re.S).group(1)
+        # The configuration of the machine is written by the function both
+        # installers call, so the test calls it as well.
         names=['operator', 'if', 'then', 'else', 'assert', 'with', 'let', 'in',
                'rec', 'inherit', 'or', 'alice-bob']
         with tempfile.TemporaryDirectory(prefix='ravnix-config-') as temporary:
@@ -269,9 +415,8 @@ class InstallerGuards(unittest.TestCase):
                     with self.subTest(mode=mode, username=name):
                         generated=self.shell(
                             'getent() { return 2; }; validate_username '+shlex.quote(name)+'\n'
-                            'hostname=ravnix-test; timezone=Europe/Warsaw; '
-                            'bootdevice=/dev/disk/by-id/test; mode='+mode+'; '
-                            'username='+shlex.quote(name)+'\ncat <<HOST\n'+template+'\nHOST\n')
+                            'host_configuration ravnix-test '+shlex.quote(name)+
+                            ' Europe/Warsaw '+mode+' /dev/disk/by-id/test')
                         self.assertEqual(generated.returncode, 0, generated.stderr)
                         host.write_text(generated.stdout)
                         expression='import (builtins.toPath '+json.dumps(str(host))+') {}'
