@@ -80,14 +80,24 @@ fi
 # --- the state of the desktop -------------------------------------------
 # The picture the desktop shows right now. An empty answer means that the
 # desktop has no picture at all.
+#
+# The shell writes the entries of a group either on lines of their own or
+# behind the name of the group, and the entries of a group are separated by
+# commas. The separators are therefore turned into line breaks, so the entry
+# of the picture can be found in every way the shell writes it.
 current_wallpaper() {
 	[ -f "$applets" ] || return 0
-	tr ',' '\n' < "$applets" 2>/dev/null | grep -m 1 '^Image=' | sed 's|^Image=||'
+	tr ',' '\n' < "$applets" 2>/dev/null \
+		| tr ' ' '\n' \
+		| grep -m 1 '^Image=' \
+		| sed 's|^Image=||'
 }
 
 # The desktop has a picture that works when the answer is a path to a file
 # that is really there. The name of a wallpaper of the desktop is a choice of
-# the user as well, and it is never touched.
+# the user as well, and it is only kept when the package of that wallpaper is
+# really installed: a global theme of KDE asks for a wallpaper that RAVNIX
+# does not ship, and the desktop would show nothing at all.
 wallpaper_broken() {
 	current=$(current_wallpaper)
 	case "$current" in
@@ -96,8 +106,13 @@ wallpaper_broken() {
 		[ -f "$file" ] && return 1
 		return 0
 		;;
+	"")
+		return 0
+		;;
 	*)
-		[ -n "$current" ] && return 1
+		for dir in ${XDG_DATA_DIRS:-} /run/current-system/sw/share; do
+			[ -d "$dir/plasma/wallpapers/$current" ] && return 1
+		done
 		return 0
 		;;
 	esac
