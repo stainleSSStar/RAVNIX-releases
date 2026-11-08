@@ -77,6 +77,16 @@ class Wallet(unittest.TestCase):
         self.assertIn('${kde.kwallet}/bin/kwalletd6', desktop)
         self.assertIn('graphical-session.target', desktop)
 
+    def test_the_wallet_service_does_not_fail_when_the_daemon_is_already_there(self):
+        # The D-Bus starts the daemon at the login, when the module of the
+        # password of the account asks for the wallet. A second instance
+        # cannot take the name of the bus and would leave a failed unit, and
+        # the service has to notice that the daemon is running already.
+        desktop = (ROOT / 'modules/desktop.nix').read_text()
+        self.assertIn('org.kde.kwalletd6', desktop)
+        self.assertIn('|| exit 0', desktop)
+        self.assertIn('Restart = "no"', desktop)
+
     def test_the_power_profiles_of_the_machine_are_available(self):
         # Plasma asks the daemon of the power profiles over the D-Bus. Without
         # that daemon the desktop says that the power profiles are not

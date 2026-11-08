@@ -145,7 +145,10 @@ CALAMARES = '''
 # and nothing else in the test would notice that.
 home=$(mktemp -d)
 runtime=$(mktemp -d)
-chmod 700 "$runtime"
+# The wizard writes its log into the home directory of the user it runs as,
+# so the directory has to belong to that user.
+chown ravnix "$home" "$runtime"
+chmod 700 "$home" "$runtime"
 log="$home/calamares.log"
 set +e
 sudo -u ravnix env HOME="$home" XDG_RUNTIME_DIR="$runtime" QT_QPA_PLATFORM=offscreen \\

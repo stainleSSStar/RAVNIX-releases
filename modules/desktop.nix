@@ -76,17 +76,33 @@ in
   # The wallet keeps the secrets of the session: the password of the
   # wireless network, the keys of the token ring and the passwords of the
   # wallets of the applications. The daemon is started by the D-Bus when an
-  # application asks for it, but a session that never asks stays without a
-  # wallet, so the daemon starts with the session. The password of the
-  # account is asked for at the login by the PAM module of the wallet, which
-  # the Plasma module of Nixpkgs already wires up.
+  # application asks for it, and the module of the password of the account
+  # does that at the login. A session that never asks stays without a
+  # wallet, so the daemon starts with the session as well.
+  #
+  # When the D-Bus started the daemon already, a second instance cannot
+  # take the name of the bus and would fail, and a failed unit is a fault
+  # the user can see in the status of the system. The service therefore
+  # starts the daemon only when it is not there yet, and it never fails
+  # when the daemon cannot be started.
+  kwalletd6Start = pkgs.writeShellScript "ravnix-kwalletd6" ''
+    busctl=${pkgs.systemd}/bin/busctl
+    if ! "$busctl" --user --no-pager list >/dev/null 2>&1; then
+      # Without a session bus there is nothing to start the daemon on.
+      exit 0
+    fi
+    if "$busctl" --user --no-pager list 2>/dev/null | grep -q '^org.kde.kwalletd6'; then
+      exit 0
+    fi
+    ${kde.kwallet}/bin/kwalletd6 || exit 0
+  '';
   systemd.user.services.kwalletd6 = {
     description = "KDE Wallet daemon";
     wantedBy = [ "graphical-session.target" ];
     serviceConfig = {
-      ExecStart = "${kde.kwallet}/bin/kwalletd6";
-      Type = "simple";
-      Restart = "on-failure";
+      ExecStart = "${kwalletd6Start}/bin/ravnix-kwalletd6";
+      Type = "exec";
+      Restart = "no";
     };
   };
 
