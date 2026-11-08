@@ -138,6 +138,33 @@ def probe_command(body, marker):
     return ('bash -c "$(printf %s ' + shlex.quote(encoded) + ' | base64 -d)"'
             ' || printf "\\nRAVNIX_VM_FAIL\\n"')
 
+CALAMARES = '''
+# The graphical installer has to start. The test does not drive the wizard,
+# but it starts it without a display and reads its log: a wizard that cannot
+# find the welcome module or the branding of RAVNIX does not start at all,
+# and nothing else in the test would notice that.
+home=$(mktemp -d)
+runtime=$(mktemp -d)
+chmod 700 "$runtime"
+log="$home/calamares.log"
+set +e
+sudo -u ravnix env HOME="$home" XDG_RUNTIME_DIR="$runtime" QT_QPA_PLATFORM=offscreen \\
+  timeout 90 calamares -d > "$log" 2>&1
+status=$?
+set -e
+# The lines that matter are printed by the wizard itself.
+grep -E 'branding file at|Loaded branding|Found [0-9]+ modules|loading complete|Cannot find|not found|ERROR' "$log" | head -30
+if ! grep -q 'ViewModule "welcome@welcome" loading complete' "$log"; then
+  echo "CALAMARES CHECK FAILED: the welcome module was not loaded"
+  exit 1
+fi
+if ! grep -q 'Loaded branding component "ravnix"' "$log"; then
+  echo "CALAMARES CHECK FAILED: the RAVNIX branding was not loaded"
+  exit 1
+fi
+echo "CALAMARES CHECK PASSED (exit $status)"
+'''
+
 HEALTH = '''
 # Every check is run even when an earlier one failed, so one run reports all
 # problems instead of only the first. The block runs in a subshell without
@@ -476,12 +503,17 @@ def test_mode(iso, mode, out):
             # there and nowhere else.
             console.run(HEALTH.replace('$USER','ravnix')+'\ncommand -v ravnix-install; command -v ravnix-guide; command -v calamares; test -f /etc/ravnix/live; sudo -u ravnix sudo -n true; nm-online -q --timeout=90', 'RAVNIX_LIVE_OK')
             phase.mark('live health check')
+            # The graphical installer has to start on the live medium. Nothing
+            # else in the test drives it, so it is started here without a
+            # display and its log is read.
+            console.run(CALAMARES, 'RAVNIX_CALAMARES_CHECKED')
+            phase.mark('calamares starts')
             print('INSTALL:', mode, flush=True)
             # The serial console is part of the installation, so the test needs
             # one installation and not two.
             console.send("ravnix-install --kernel-params 'console=tty0 console=ttyS0,115200n8' || printf '\\nRAVNIX_VM_FAIL\\n'\n")
             device='/dev/sda' if mode=='bios' else '/dev/nvme0n1'
-            for prompt,answer in [('Target whole disk:',device),('Hostname:','ravnix-test'),('Username:','tester'),('Timezone [Europe/Warsaw]:','Europe/Warsaw'),(f'Type ERASE {device} to continue:',f'ERASE {device}')]:
+            for prompt,answer in [('Target whole disk:',device),('Hostname [ravnix]:','ravnix-test'),('Username [operator]:','tester'),('Timezone [Europe/Warsaw]:','Europe/Warsaw'),(f'Type ERASE {device} to continue:',f'ERASE {device}')]:
                 console.expect(prompt.encode(),timeout=120)
                 console.send(answer+'\n')
             print('WAIT: installation and password prompt', mode, flush=True)

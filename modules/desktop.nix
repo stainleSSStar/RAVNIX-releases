@@ -20,6 +20,10 @@ let
     mkdir -p $out/share/ravnix
     mkdir -p $out/share/sddm/themes/ravnix
     cp ${../assets/ravnix-wallpaper.jpg} $out/share/backgrounds/ravnix/ravnix-wallpaper.jpg
+    # KDE Frameworks 6.6 reads the colour schemes from files that end in
+    # ".colors". The older name is kept as well, so the scheme is found by
+    # every version of the desktop.
+    cp ${../assets/RAVNIX-PurpleNeon.colorscheme} $out/share/color-schemes/RAVNIX-PurpleNeon.colors
     cp ${../assets/RAVNIX-PurpleNeon.colorscheme} $out/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
     cp ${../assets/RAVNIX.colorscheme} $out/share/konsole/RAVNIX.colorscheme
     cp ${../assets/fastfetch-logo.txt} $out/share/ravnix/fastfetch-logo.txt
@@ -67,6 +71,39 @@ in
   xdg.mime.enable = true;
   xdg.sounds.enable = true;
   xdg.portal.enable = true;
+
+  # --- KDE Wallet ----------------------------------------------------------
+  # The wallet keeps the secrets of the session: the password of the
+  # wireless network, the keys of the token ring and the passwords of the
+  # wallets of the applications. The daemon is started by the D-Bus when an
+  # application asks for it, but a session that never asks stays without a
+  # wallet, so the daemon starts with the session. The password of the
+  # account is asked for at the login by the PAM module of the wallet, which
+  # the Plasma module of Nixpkgs already wires up.
+  systemd.user.services.kwalletd6 = {
+    description = "KDE Wallet daemon";
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig = {
+      ExecStart = "${kde.kwallet}/bin/kwalletd6";
+      Type = "simple";
+      Restart = "on-failure";
+    };
+  };
+
+  # --- Power ---------------------------------------------------------------
+  # PowerDevil is the daemon of the energy settings of the desktop, and it
+  # is what shows the power profiles of the machine. The profiles themselves
+  # are set by the daemon of the power profiles, which Plasma asks over the
+  # D-Bus. Without that daemon the desktop says that the power profiles are
+  # not supported on this machine.
+  services.power-profiles-daemon.enable = true;
+
+  # --- Sandbox of the browser ----------------------------------------------
+  # The browser of the family of Chromium sandboxes itself with a user
+  # namespace, because the Nix store cannot hold the setuid helper of the
+  # setuid sandbox. User namespaces are allowed by default, and the setting
+  # is spelled out so the sandbox keeps working if the default ever changes.
+  security.allowUserNamespaces = true;
 
   # --- Sound ---------------------------------------------------------------
   # PipeWire as the sound server, with the ALSA and PulseAudio compatibility

@@ -3,7 +3,7 @@
     "logo": {
         "type": "file",
         "source": "@LOGO@",
-        "color": { "1": "bright_purple", "2": "bright_magenta", "3": "bright_green", "4": "bright_magenta", "5": "bright_green", "6": "bright_purple" },
+        "color": { "1": "#a78bfa", "2": "#f472b6", "3": "#a6f28a", "4": "#f472b6", "5": "#a6f28a", "6": "#a78bfa" },
         "padding": { "top": 1, "left": 1 }
     },
     "display": { "separator": "  " },

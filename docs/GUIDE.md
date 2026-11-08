@@ -78,12 +78,20 @@ desktop shortcut, or from a terminal:
 sudo ravnix-install
 ```
 
-The installer asks for the **whole target disk**, hostname, new username and
-timezone (default Europe/Warsaw). It displays the disk identity and requires
-`ERASE /dev/...` matching the selected device exactly. **All existing data and
-partitions on that disk will be erased.** Do not choose the live USB.
+The installer explains every step before it asks the question. It asks for the
+**whole target disk** (the list of the disks of the machine is shown first, and
+either `sda` or `/dev/sda` is accepted), the hostname (default `ravnix`), the
+username of the ordinary account (default `operator`) and the timezone (default
+Europe/Warsaw). It displays the disk identity and requires `ERASE /dev/...`
+matching the selected device exactly. **All existing data and partitions on
+that disk will be erased.** Do not choose the live USB.
 Mounted disks, active swap, read-only disks and active LVM/RAID/encryption
 mappings are rejected. A dedicated disk of at least 16 GiB is required.
+
+The answers are printed as a summary before the disk is touched, so they can
+still be corrected at that point. The password of the new account is asked for
+twice at the end; the active keyboard layout decides which characters the
+password contains.
 
 For a headless machine, add the parameters of the kernel command line, for
 example a serial console:

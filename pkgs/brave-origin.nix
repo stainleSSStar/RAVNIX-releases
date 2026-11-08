@@ -188,6 +188,9 @@ stdenv.mkDerivation {
     # Chromium refuses to start when it finds a helper that is present but not
     # configured that way, so drop it and let the browser fall back to the
     # unprivileged user-namespace sandbox, which NixOS allows by default.
+    # The helper is not shipped and the browser is not told to skip the
+    # sandbox: the user namespace sandbox is a real sandbox and it is the one
+    # the browser uses on its own.
     rm -f "$out/opt/brave.com/brave-origin/chrome-sandbox"
 
     for exe in "$out/opt/brave.com/brave-origin/brave" \
@@ -230,7 +233,6 @@ stdenv.mkDerivation {
       --suffix PATH : ${makeBinPath [ xdg-utils coreutils ]}
       --set CHROME_WRAPPER brave-origin
       --add-flags "--disable-features=OutdatedBuildDetector"
-      --add-flags "--disable-setuid-sandbox"
       --add-flags "--ozone-platform-hint=auto"
       --add-flags "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoEncoder"
     )
