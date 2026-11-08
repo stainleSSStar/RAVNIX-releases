@@ -158,6 +158,26 @@ class BrandingScript(unittest.TestCase):
         self.run_script()
         self.assertIn('ravnix-wallpaper.jpg', self.applets())
 
+    def test_a_lock_that_is_left_over_is_taken_over(self):
+        # A session that was killed leaves the lock behind. The desktop of
+        # that account would never be branded again.
+        self.shell_writes_the_layout()
+        lock = self.home / '.config' / 'ravnix' / 'branding.lock'
+        lock.mkdir(parents=True)
+        old = time.time() - 600
+        os.utime(lock, (old, old))
+        self.run_script()
+        self.assertIn('ravnix-wallpaper.jpg', self.applets())
+
+    def test_the_script_does_not_work_twice_at_the_same_time(self):
+        # The service of the session and the entry in the autostart of the
+        # desktop start the script at the same moment.
+        self.shell_writes_the_layout()
+        lock = self.home / '.config' / 'ravnix' / 'branding.lock'
+        lock.mkdir(parents=True)
+        self.run_script()
+        self.assertNotIn('ravnix-wallpaper.jpg', self.applets())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -40,11 +40,26 @@ warn() {
 # The service of the session and the entry in the autostart of the desktop
 # start the script at the same moment. Only one of them may work, otherwise
 # both set the wallpaper of the desktop at the same time.
-mkdir -p "$state_dir" 2>/dev/null || true
-if ! mkdir "$state_dir/branding.lock" 2>/dev/null; then
+#
+# A lock that is older than five minutes is left over from a session that was
+# killed, and it is taken over. Otherwise the desktop of that account would
+# never be branded again.
+lock="$state_dir/branding.lock"
+take_lock() {
+	mkdir -p "$state_dir" 2>/dev/null || return 1
+	mkdir "$lock" 2>/dev/null && return 0
+	# A lock that is older than five minutes is left over from a session
+	# that was killed, and it is taken over. Otherwise the desktop of that
+	# account would never be branded again.
+	find "$lock" -maxdepth 0 -mmin +5 2>/dev/null | grep -q . || return 1
+	rmdir "$lock" 2>/dev/null || true
+	mkdir "$lock" 2>/dev/null
+}
+if ! take_lock; then
 	exit 0
 fi
-trap 'rmdir "$state_dir/branding.lock" 2>/dev/null || true' 0 1 2 15
+trap 'rmdir "$lock" 2>/dev/null || true' 0
+trap 'exit 0' 1 2 15
 
 # --- the picture of the distribution ------------------------------------
 # The wallpaper belongs to the profile of the system, but a session that does
