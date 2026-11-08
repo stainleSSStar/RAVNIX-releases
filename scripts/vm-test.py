@@ -70,8 +70,15 @@ class Console:
     def expect(self, pattern, timeout=900):
         start = time.monotonic()
         until = min(self.deadline, start + timeout)
+        grace = None
         while pattern not in self.data[self.cursor:]:
-            if time.monotonic() > until or self.process.poll() is not None:
+            if grace is not None:
+                # The guest writes the reason of the failure after the
+                # marker, so the console is read for a few more seconds
+                # before the machine is stopped.
+                if time.monotonic() > grace:
+                    raise RuntimeError('Guest probe failed')
+            elif time.monotonic() > until or self.process.poll() is not None:
                 waited = int(time.monotonic() - start)
                 raise RuntimeError(
                     f'Console did not receive {pattern!r} after {waited}s '
@@ -85,8 +92,8 @@ class Console:
             self.data.extend(chunk)
             print(chunk.decode('utf-8', 'replace'), end='', flush=True)
             self.answer_terminal_queries(chunk)
-            if b'\r\nRAVNIX_VM_FAIL\r\n' in self.data[self.cursor:]:
-                raise RuntimeError('Guest probe failed')
+            if grace is None and b'\r\nRAVNIX_VM_FAIL\r\n' in self.data[self.cursor:]:
+                grace = time.monotonic() + 10
         self.cursor = self.data.index(pattern, self.cursor) + len(pattern)
 
     def answer_terminal_queries(self, chunk):
@@ -189,19 +196,21 @@ log="$home/calamares.log"
 # D-Bus, and it stops at once when there is none. The test gives the wizard a
 # bus of its own, because the session of the desktop is not there in a
 # machine that is tested over a serial console.
-set +e
+#
+# The status is read with "|| status=$?" and not with a plain command: a
+# command that fails inside a list with "||" does not call the error trap of
+# the test, and the test would stop before it could show the log of the
+# wizard.
+status=0
 if command -v dbus-run-session >/dev/null 2>&1; then
-  sudo -u ravnix env PATH="$PATH" HOME="$home" XDG_RUNTIME_DIR="$runtime" \\
-    QT_QPA_PLATFORM=offscreen \\
-    dbus-run-session -- timeout 60 calamares -d > "$log" 2>&1
-  status=$?
+  sudo -u ravnix env PATH="$PATH" HOME="$home" XDG_RUNTIME_DIR="$runtime" \
+    QT_QPA_PLATFORM=offscreen \
+    dbus-run-session -- timeout 60 calamares -d > "$log" 2>&1 || status=$?
 else
-  sudo -u ravnix env PATH="$PATH" HOME="$home" XDG_RUNTIME_DIR="$runtime" \\
-    QT_QPA_PLATFORM=offscreen \\
-    timeout 60 calamares -d > "$log" 2>&1
-  status=$?
+  sudo -u ravnix env PATH="$PATH" HOME="$home" XDG_RUNTIME_DIR="$runtime" \
+    QT_QPA_PLATFORM=offscreen \
+    timeout 60 calamares -d > "$log" 2>&1 || status=$?
 fi
-set -e
 
 # The wizard writes its log into the cache of the user as well, and it does
 # not always write to the console. Both are read.
@@ -214,9 +223,14 @@ echo "the wizard ended with the status $status"
 # The log of the wizard is the only place that knows why the wizard did not
 # start, so it is printed in every case.
 echo "--- the log of the wizard ---"
-head -40 "$report" || true
+head -30 "$report" || true
 echo "..."
-tail -40 "$report" || true
+# The lines that the check below looks for are printed as well, so the report
+# of the test says what was found and not only what the wizard wrote first.
+grep -aE 'welcome@welcome|Loaded branding|cannot be created|not found in module search paths|loading complete' \
+  "$report" | head -30 || true
+echo "..."
+tail -20 "$report" || true
 echo "--- the end of the log ---"
 
 # A module that cannot be created is the failure a user ran into: the wizard
