@@ -33,37 +33,144 @@ class DesktopBranding(unittest.TestCase):
         self.assertIn('$out/share/color-schemes/RAVNIX-PurpleNeon.colors', desktop)
         self.assertIn('$out/share/color-schemes/RAVNIX-PurpleNeon.colorscheme', desktop)
 
+    def test_the_colour_scheme_is_in_the_profile_of_the_user_as_well(self):
+        # The session of the desktop does not always carry the profile of the
+        # system in its data directories, so the scheme has to be in the
+        # profile of the user too.
+        desktop = self.desktop()
+        self.assertIn('skel/.local/share/color-schemes/RAVNIX-PurpleNeon.colors', desktop)
+
     def test_the_global_theme_of_the_desktop_exists(self):
-        # The look and feel package is part of the Plasma workspace. If it is
-        # missing, the desktop falls back to the standard theme and the user
-        # cannot change the theme at all.
+        # The global theme is a package of the Plasma workspace. The one of
+        # RAVNIX has to be shipped, otherwise the settings of the desktop only
+        # offer the themes of KDE, and the user cannot change the theme at
+        # all.
+        desktop = self.desktop()
+        self.assertIn('share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop', desktop)
+        metadata = ROOT / 'assets/ravnix-lookandfeel/metadata.json'
+        self.assertTrue(metadata.is_file(), 'the global theme has no metadata')
+        self.assertIn('org.kde.ravnix.purpleneon.desktop', metadata.read_text())
+
+    def test_the_global_theme_sets_the_colours_of_the_distribution(self):
+        # The global theme is what the desktop applies when the user picks it.
+        # The colours of RAVNIX are the ones of the distribution, and the
+        # Plasma theme stays the default one, because it takes the colours
+        # of the scheme: that is how the panel of the desktop becomes dark.
+        defaults = (ROOT / 'assets/ravnix-lookandfeel/contents/defaults').read_text()
+        self.assertIn('ColorScheme=RAVNIX-PurpleNeon', defaults)
+        self.assertIn('name=default', defaults)
+        self.assertIn('Theme=breeze-dark', defaults)
+
+    def test_the_configuration_of_the_desktop_names_the_theme_of_the_distribution(self):
+        # The configuration of the desktop decides which colours and which
+        # icons the session starts with. The theme of KDE was named there,
+        # and it brought the standard colours with it.
         globals_file = (ROOT / 'assets/kdeglobals').read_text()
-        self.assertIn('lookAndFeelPackage=org.kde.breezedark.desktop', globals_file)
         self.assertIn('ColorScheme=RAVNIX-PurpleNeon', globals_file)
+        self.assertIn('lookAndFeelPackage=org.kde.ravnix.purpleneon.desktop', globals_file)
+        self.assertIn('Theme=breeze-dark', globals_file)
+
+    def test_the_configuration_of_the_desktop_has_no_file_that_does_not_exist(self):
+        # A line that names an update file which is not there makes the
+        # desktop complain about its configuration on every login.
+        globals_file = (ROOT / 'assets/kdeglobals').read_text()
+        self.assertNotIn('update_info', globals_file)
+
+    def test_the_colours_of_the_distribution_are_dark(self):
+        # The panel of the desktop takes its colour from the background of
+        # the scheme. A scheme with a light background gives a white panel,
+        # which is what a user saw on RAVNIX.
+        scheme = (ROOT / 'assets/RAVNIX-PurpleNeon.colorscheme').read_text()
+        for group in ('Colors:Window', 'Colors:View'):
+            block = scheme.split(f'[{group}]', 1)[1].split('\n[', 1)[0]
+            match = re.search(r'^BackgroundNormal=(\d+),(\d+),(\d+)$', block, re.M)
+            self.assertIsNotNone(match, f'{group} has no background')
+            red, green, blue = (int(value) for value in match.groups())
+            self.assertLess((red + green + blue) / 3, 100, f'{group} is not dark')
+
+    def test_the_pointer_of_the_distribution_is_shipped(self):
+        # The cursor theme is read from the file kcminputrc and from no other
+        # one, so it needs its own file in the profile of the user.
+        desktop = self.desktop()
+        self.assertIn('skel/.config/kcminputrc', desktop)
+        self.assertIn('cursorTheme=breeze_cursors', (ROOT / 'assets/kcminputrc').read_text())
 
     def test_the_wallpaper_is_applied_until_it_is_really_there(self):
-        # A single attempt to apply the wallpaper comes too early, because the
-        # Plasma shell is not up yet, and then the desktop keeps the default
-        # wallpaper for the rest of the session. The script has to keep trying
-        # and has to check the configuration of the desktop.
+        # The command that sets the wallpaper can be sent to the shell before
+        # it is able to keep it, so the script has to keep trying and has to
+        # check the configuration of the desktop.
         script = (ROOT / 'assets/ravnix-branding.sh').read_text()
         self.assertIn('plasma-apply-wallpaperimage', script)
         self.assertIn('ravnix-wallpaper.jpg', script)
         self.assertIn('plasma-org.kde.plasma.desktop-appletsrc', script)
         self.assertIn('while [ "$count" -lt "$attempts" ]', script)
 
+    def test_the_wallpaper_waits_for_the_shell_of_the_desktop(self):
+        # The shell writes the layout of the desktop when it starts, and it
+        # throws away a wallpaper that was set before that. The wallpaper of
+        # RAVNIX was therefore seen only a minute or two after the login.
+        script = (ROOT / 'assets/ravnix-branding.sh').read_text()
+        self.assertIn('shell_ready', script)
+        wait = script.index('shell_ready && break')
+        apply_wallpaper = script.index('plasma-apply-wallpaperimage "$wallpaper"')
+        self.assertLess(wait, apply_wallpaper)
+
+    def test_the_wallpaper_of_the_user_is_never_thrown_away(self):
+        # A picture that the user chose stays. The script only sets the
+        # wallpaper of RAVNIX when the desktop has no picture that works.
+        script = (ROOT / 'assets/ravnix-branding.sh').read_text()
+        self.assertIn('wallpaper_broken', script)
+        self.assertIn('if wallpaper_broken; then', script)
+
     def test_the_colours_are_applied_once_and_not_against_the_user(self):
         # The user picks a theme in the settings of the desktop. A script that
         # puts the colours back every second would take that choice away
-        # again, so the colours are applied once, after the wallpaper is
+        # again, which is what a user complained about: the theme of the
+        # desktop never changed. A marker remembers that the colours are
         # there.
         script = (ROOT / 'assets/ravnix-branding.sh').read_text()
-        wallpaper_loop = script.index('while [ "$count" -lt "$attempts" ]')
-        colour_loop = script.index('while [ "$count" -lt 10 ]')
-        self.assertLess(wallpaper_loop, colour_loop)
-        # The colours are not applied inside the loop of the wallpaper.
-        wallpaper_loop_body = script[wallpaper_loop:colour_loop]
-        self.assertNotIn('apply_scheme', wallpaper_loop_body)
+        self.assertIn('branding-applied', script)
+        self.assertIn('if [ ! -f "$marker" ]; then', script)
+        self.assertIn('plasma-apply-colorscheme', script)
+        self.assertIn('scheme_in_globals', script)
+
+    def test_the_two_ways_to_start_the_script_do_not_work_at_the_same_time(self):
+        # The service of the session and the entry in the autostart of the
+        # desktop start the script at the same moment.
+        script = (ROOT / 'assets/ravnix-branding.sh').read_text()
+        self.assertIn('branding.lock', script)
+
+
+class KdePackages(unittest.TestCase):
+    def desktop(self):
+        return (ROOT / 'modules/desktop.nix').read_text()
+
+    def test_the_desktop_ships_the_packages_kde_needs(self):
+        # A package that is missing shows up as a missing setting in the
+        # desktop, and the user cannot repair that. The list of the packages
+        # of KDE is therefore written down in the module and not left to the
+        # defaults of nixpkgs.
+        desktop = self.desktop()
+        for package in (
+            'plasma-workspace', 'plasma-desktop', 'systemsettings', 'kcmutils',
+            'libplasma', 'kdeplasma-addons', 'breeze', 'breeze-icons',
+            'breeze-gtk', 'kwallet', 'kwallet-pam', 'kwalletmanager',
+            'polkit-kde-agent-1', 'kscreenlocker', 'kwin', 'kded', 'kio',
+            'kio-extras', 'kio-admin', 'kglobalacceld', 'kactivitymanagerd',
+            'konsole', 'dolphin', 'kate', 'spectacle', 'gwenview', 'ark',
+            'elisa', 'okular', 'khelpcenter', 'kde-cli-tools', 'kmenuedit',
+            'kinfocenter', 'plasma-systemmonitor', 'ksystemstats', 'milou',
+            'baloo', 'knighttime', 'kunifiedpush', 'solid', 'drkonqi',
+            'aurorae', 'qqc2-breeze-style', 'qqc2-desktop-style',
+            'ocean-sound-theme', 'plasma-integration', 'kde-gtk-config',
+        ):
+            with self.subTest(package=package):
+                self.assertRegex(desktop, rf'(?m)^\s+{re.escape(package)}$')
+
+    def test_the_packages_of_kde_are_added_to_the_system(self):
+        desktop = self.desktop()
+        self.assertIn('environment.systemPackages', desktop)
+        self.assertIn('++ kdeDesktop;', desktop)
 
 
 class Wallet(unittest.TestCase):

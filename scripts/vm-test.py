@@ -224,9 +224,21 @@ else
 fi
 check systemctl is-active display-manager
 check test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg
+# The desktop of KDE reads the colour schemes from the files that end in
+# ".colors". Without that file the desktop falls back to the standard colours
+# and the panel of the desktop stays white.
+check test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colors
 check test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
+# The global theme of the distribution is a package of the Plasma workspace.
+# Without it the settings of the desktop only offer the themes of KDE.
+check test -f /run/current-system/sw/share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/metadata.json
+check test -f /run/current-system/sw/share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/contents/defaults
 check test -f /run/current-system/sw/share/sddm/themes/ravnix/Main.qml
 check test -f /run/current-system/sw/share/ravnix/fastfetch-logo.txt
+# A new account starts with the colours and the theme of the distribution.
+check grep -q '^ColorScheme=RAVNIX-PurpleNeon$' /etc/skel/.config/kdeglobals
+check grep -q 'lookAndFeelPackage=org.kde.ravnix.purpleneon.desktop' /etc/skel/.config/kdeglobals
+check grep -q '^cursorTheme=breeze_cursors$' /etc/skel/.config/kcminputrc
 # The fastfetch branding has to point at a file that really exists.
 fastfetch_logo=$(grep '"source"' /etc/skel/.config/fastfetch/config.jsonc | head -1 | cut -d '"' -f 4 || true)
 check test -f "$fastfetch_logo"

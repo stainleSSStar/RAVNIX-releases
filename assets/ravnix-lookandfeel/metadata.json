@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "RAVNIX"
+            }
+        ],
+        "Category": "",
+        "Description": "The dark purple theme of RAVNIX",
+        "Id": "org.kde.ravnix.purpleneon.desktop",
+        "License": "MIT",
+        "Name": "RAVNIX Purple Neon",
+        "Website": "https://github.com/stainleSSStar/RAVNIX"
+    }
+}

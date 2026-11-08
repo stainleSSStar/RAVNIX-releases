@@ -11,12 +11,84 @@ let
   # on Linux. It is not in nixpkgs, so RAVNIX repackages it.
   braveOrigin = pkgs.callPackage ../pkgs/brave-origin.nix { };
 
-  # Wallpaper, colour schemes, greeter theme and the fastfetch logo ship as
-  # one package so they always land in the system profile together.
+  # The packages that KDE Plasma needs to work properly. The module of
+  # Plasma in nixpkgs brings most of them, but the desktop of RAVNIX has to
+  # be complete on its own: a package that is missing shows up as a missing
+  # setting in the desktop, and the user cannot repair that.
+  kdeDesktop = with kde; [
+    # The core of the desktop and the settings of it.
+    plasma-workspace
+    plasma-desktop
+    systemsettings
+    kcmutils
+    libplasma
+    kdeplasma-addons
+    # The artwork and the themes.
+    breeze
+    breeze-icons
+    breeze-gtk
+    aurorae
+    qqc2-breeze-style
+    qqc2-desktop-style
+    ocean-sound-theme
+    # The applications of other toolkits have to look like the applications
+    # of the desktop, and they read the colours of the desktop.
+    plasma-integration
+    kde-gtk-config
+    # The daemon of the session and the helper services.
+    kded
+    kwin
+    kglobalacceld
+    kactivitymanagerd
+    kwallet
+    kwallet-pam
+    kwalletmanager
+    polkit-kde-agent-1
+    kscreenlocker
+    kunifiedpush
+    knighttime
+    solid
+    # The parts that handle the files and the services.
+    kio
+    kio-extras
+    kio-admin
+    kfilemetadata
+    kimageformats
+    qtimageformats
+    kguiaddons
+    kiconthemes
+    kconfig
+    phonon-vlc
+    drkonqi
+    # The search and the index.
+    milou
+    baloo
+    # The everyday applications of the desktop.
+    konsole
+    dolphin
+    kate
+    ktexteditor
+    spectacle
+    gwenview
+    ark
+    elisa
+    okular
+    khelpcenter
+    kde-cli-tools
+    kmenuedit
+    kinfocenter
+    plasma-systemmonitor
+    ksystemstats
+  ];
+
+  # Wallpaper, colour schemes, global theme, greeter theme and the fastfetch
+  # logo ship as one package so they always land in the system profile
+  # together.
   branding = pkgs.runCommand "ravnix-branding" { } ''
     mkdir -p $out/share/backgrounds/ravnix
     mkdir -p $out/share/color-schemes
     mkdir -p $out/share/konsole
+    mkdir -p $out/share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/contents/layouts
     mkdir -p $out/share/ravnix
     mkdir -p $out/share/sddm/themes/ravnix
     cp ${../assets/ravnix-wallpaper.jpg} $out/share/backgrounds/ravnix/ravnix-wallpaper.jpg
@@ -25,6 +97,15 @@ let
     # every version of the desktop.
     cp ${../assets/RAVNIX-PurpleNeon.colorscheme} $out/share/color-schemes/RAVNIX-PurpleNeon.colors
     cp ${../assets/RAVNIX-PurpleNeon.colorscheme} $out/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
+    # The global theme of the distribution. The desktop lists it in the
+    # settings under "Global Theme", and picking it sets the colours, the
+    # icons, the pointer and the decoration of the windows of RAVNIX.
+    cp ${../assets/ravnix-lookandfeel/metadata.json} \
+       $out/share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/metadata.json
+    cp ${../assets/ravnix-lookandfeel/contents/defaults} \
+       $out/share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/contents/defaults
+    cp ${../assets/ravnix-lookandfeel/contents/layouts/org.kde.plasma.desktop-layout.js} \
+       $out/share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/contents/layouts/org.kde.plasma.desktop-layout.js
     cp ${../assets/RAVNIX.colorscheme} $out/share/konsole/RAVNIX.colorscheme
     cp ${../assets/fastfetch-logo.txt} $out/share/ravnix/fastfetch-logo.txt
     cp ${../assets/sddm-ravnix/Main.qml} $out/share/sddm/themes/ravnix/Main.qml
@@ -44,6 +125,21 @@ let
       [ "${branding}/share/ravnix/fastfetch-logo.txt" ]
       (builtins.readFile ../assets/fastfetch.jsonc)
   );
+
+  # The wallet daemon is started by a script that first looks whether the
+  # D-Bus already offers the daemon. The script belongs to the let block,
+  # because a helper of a service cannot be a sibling of the service.
+  kwalletd6Start = pkgs.writeShellScript "ravnix-kwalletd6" ''
+    busctl=${pkgs.systemd}/bin/busctl
+    if ! "$busctl" --user --no-pager list >/dev/null 2>&1; then
+      # Without a session bus there is nothing to start the daemon on.
+      exit 0
+    fi
+    if "$busctl" --user --no-pager list 2>/dev/null | grep -q '^org.kde.kwalletd6'; then
+      exit 0
+    fi
+    ${kde.kwallet}/bin/kwalletd6 || exit 0
+  '';
 in
 {
   # --- Plasma 6 ------------------------------------------------------------
@@ -85,17 +181,6 @@ in
   # the user can see in the status of the system. The service therefore
   # starts the daemon only when it is not there yet, and it never fails
   # when the daemon cannot be started.
-  kwalletd6Start = pkgs.writeShellScript "ravnix-kwalletd6" ''
-    busctl=${pkgs.systemd}/bin/busctl
-    if ! "$busctl" --user --no-pager list >/dev/null 2>&1; then
-      # Without a session bus there is nothing to start the daemon on.
-      exit 0
-    fi
-    if "$busctl" --user --no-pager list 2>/dev/null | grep -q '^org.kde.kwalletd6'; then
-      exit 0
-    fi
-    ${kde.kwallet}/bin/kwalletd6 || exit 0
-  '';
   systemd.user.services.kwalletd6 = {
     description = "KDE Wallet daemon";
     wantedBy = [ "graphical-session.target" ];
@@ -148,7 +233,7 @@ in
   hardware.bluetooth.enable = true;
 
   # --- Applications --------------------------------------------------------
-  environment.systemPackages = with pkgs; [
+  environment.systemPackages = (with pkgs; [
     mc
     btop
     fastfetch
@@ -162,7 +247,7 @@ in
     gparted
     braveOrigin
     branding
-  ];
+  ]) ++ kdeDesktop;
 
   # --- Branding ------------------------------------------------------------
   # Brave Origin handles web content by default.
@@ -178,10 +263,14 @@ in
   # Skel files are copied into every new home directory, so the theme, the
   # console profile and the tool configuration are in place on first login.
   environment.etc."skel/.config/kdeglobals".source = ../assets/kdeglobals;
+  environment.etc."skel/.config/kcminputrc".source = ../assets/kcminputrc;
   environment.etc."skel/.config/konsolerc".source = ../assets/konsolerc;
   environment.etc."skel/.local/share/konsole/RAVNIX.profile".source = ../assets/RAVNIX.profile;
   # The colour schemes also live in the user profile, where KDE always looks
-  # for them, whatever the session data directories happen to be.
+  # for them, whatever the session data directories happen to be. The desktop
+  # of this version of KDE reads the file that ends in ".colors", the older
+  # name is kept as well.
+  environment.etc."skel/.local/share/color-schemes/RAVNIX-PurpleNeon.colors".source = ../assets/RAVNIX-PurpleNeon.colorscheme;
   environment.etc."skel/.local/share/color-schemes/RAVNIX-PurpleNeon.colorscheme".source = ../assets/RAVNIX-PurpleNeon.colorscheme;
   environment.etc."skel/.local/share/konsole/RAVNIX.colorscheme".source = ../assets/RAVNIX.colorscheme;
   environment.etc."skel/.config/fastfetch/config.jsonc".source = fastfetchConfig;
@@ -193,7 +282,9 @@ in
   # --- Applying the theme --------------------------------------------------
   # The wallpaper and the colour scheme are applied once the Plasma shell is
   # up. Two independent triggers keep this working regardless of how the
-  # session was started; the script is idempotent.
+  # session was started; the script is idempotent and it only ever applies
+  # the colours once, so the choice of the user in the settings of the
+  # desktop is never taken away again.
   systemd.user.services.ravnix-branding = {
     description = "Apply the RAVNIX Purple Neon theme and wallpaper";
     wantedBy = [ "graphical-session.target" ];

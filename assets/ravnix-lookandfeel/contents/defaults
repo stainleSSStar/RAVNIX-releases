@@ -1,0 +1,32 @@
+# The global theme of RAVNIX.
+#
+# The file is written by the desktop when the user picks the theme in the
+# settings. Every entry names the file it belongs to and the group inside it,
+# in the same way the themes of KDE do.
+#
+# The colours of the theme are the colours of RAVNIX. The Plasma theme itself
+# stays the default one, because it takes the colours of the scheme: that is
+# how the panel of the desktop becomes dark.
+[kdeglobals][General]
+ColorScheme=RAVNIX-PurpleNeon
+
+[kdeglobals][KDE]
+ColorScheme=RAVNIX-PurpleNeon
+widgetStyle=Breeze
+lookAndFeelPackage=org.kde.ravnix.purpleneon.desktop
+
+[kdeglobals][Icons]
+Theme=breeze-dark
+
+[plasmarc][Theme]
+name=default
+
+[kcminputrc][Mouse]
+cursorTheme=breeze_cursors
+
+[kwinrc][org.kde.kdecoration2]
+library=org.kde.breeze
+theme=Breeze
+
+[KSplash]
+Theme=org.kde.Breeze

@@ -1,0 +1,6 @@
+# The pointer of RAVNIX.
+#
+# The cursor theme is read from this file and from no other one, so it needs
+# its own file in the profile of the user.
+[Mouse]
+cursorTheme=breeze_cursors
