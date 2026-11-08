@@ -140,9 +140,43 @@ def probe_command(body, marker):
 
 CALAMARES = '''
 # The graphical installer has to start. The test does not drive the wizard,
-# but it starts it without a display and reads its log: a wizard that cannot
-# find the welcome module or the branding of RAVNIX does not start at all,
-# and nothing else in the test would notice that.
+# but it checks the configuration of the wizard and starts it without a
+# display: a wizard that cannot find the welcome module or the branding of
+# RAVNIX does not start at all, and nothing else in the test would notice
+# that.
+#
+# The configuration is checked first, because it can be checked without a
+# display, and because a broken file of a module keeps the wizard from
+# starting at all.
+config=$(ls -d /nix/store/*-calamares-nixos-extensions-*/etc/calamares 2>/dev/null | head -1 || true)
+if [ -z "$config" ]; then
+  echo "CALAMARES CHECK FAILED: the configuration of the wizard was not found"
+  false
+fi
+echo "the configuration of the wizard is in $config"
+
+# The key of the storage requirement belongs to the block of the requirements.
+# A line without the indentation breaks the file, and the wizard does not
+# start with a broken file: that is the failure a user ran into.
+if ! grep -qE '^[[:space:]]+requiredStorage:' "$config/modules/welcome.conf"; then
+  echo "CALAMARES CHECK FAILED: the storage requirement of the welcome module lost its indentation"
+  grep -n 'requiredStorage' "$config/modules/welcome.conf" || true
+  false
+fi
+
+# The branding of RAVNIX has to be the one the wizard shows.
+if ! grep -qE '^branding:[[:space:]]*ravnix' "$config/settings.conf"; then
+  echo "CALAMARES CHECK FAILED: the wizard does not use the branding of RAVNIX"
+  false
+fi
+
+# Every module of the wizard needs a description of itself, or the wizard
+# cannot create it.
+if ! ls /nix/store/*-calamares-3*/lib/calamares/modules/welcome/module.desc >/dev/null 2>&1; then
+  echo "CALAMARES CHECK FAILED: the welcome module of the wizard is not there"
+  false
+fi
+
 home=$(mktemp -d)
 runtime=$(mktemp -d)
 # The wizard writes its log into the home directory of the user it runs as,
@@ -150,20 +184,59 @@ runtime=$(mktemp -d)
 chown ravnix "$home" "$runtime"
 chmod 700 "$home" "$runtime"
 log="$home/calamares.log"
+
+# The wizard talks to the service of Calamares over the session bus of the
+# D-Bus, and it stops at once when there is none. The test gives the wizard a
+# bus of its own, because the session of the desktop is not there in a
+# machine that is tested over a serial console.
 set +e
-sudo -u ravnix env HOME="$home" XDG_RUNTIME_DIR="$runtime" QT_QPA_PLATFORM=offscreen \\
-  timeout 90 calamares -d > "$log" 2>&1
-status=$?
-set -e
-# The lines that matter are printed by the wizard itself.
-grep -E 'branding file at|Loaded branding|Found [0-9]+ modules|loading complete|Cannot find|not found|ERROR' "$log" | head -30
-if ! grep -q 'ViewModule "welcome@welcome" loading complete' "$log"; then
-  echo "CALAMARES CHECK FAILED: the welcome module was not loaded"
-  exit 1
+if command -v dbus-run-session >/dev/null 2>&1; then
+  sudo -u ravnix env PATH="$PATH" HOME="$home" XDG_RUNTIME_DIR="$runtime" \\
+    QT_QPA_PLATFORM=offscreen \\
+    dbus-run-session -- timeout 60 calamares -d > "$log" 2>&1
+  status=$?
+else
+  sudo -u ravnix env PATH="$PATH" HOME="$home" XDG_RUNTIME_DIR="$runtime" \\
+    QT_QPA_PLATFORM=offscreen \\
+    timeout 60 calamares -d > "$log" 2>&1
+  status=$?
 fi
-if ! grep -q 'Loaded branding component "ravnix"' "$log"; then
+set -e
+
+# The wizard writes its log into the cache of the user as well, and it does
+# not always write to the console. Both are read.
+report="$log"
+if [ -f "$home/.cache/Calamares/session.log" ]; then
+  cat "$log" "$home/.cache/Calamares/session.log" > "$home/calamares-all.log"
+  report="$home/calamares-all.log"
+fi
+echo "the wizard ended with the status $status"
+# The log of the wizard is the only place that knows why the wizard did not
+# start, so it is printed in every case.
+echo "--- the log of the wizard ---"
+head -40 "$report" || true
+echo "..."
+tail -40 "$report" || true
+echo "--- the end of the log ---"
+
+# A module that cannot be created is the failure a user ran into: the wizard
+# does not start at all when the file of the module is broken.
+if grep -q 'cannot be created' "$report"; then
+  echo "CALAMARES CHECK FAILED: a module of the wizard could not be created"
+  false
+fi
+# A module that the wizard cannot find is the other failure a user ran into.
+if grep -q 'not found in module search paths' "$report"; then
+  echo "CALAMARES CHECK FAILED: a module of the wizard was not found"
+  false
+fi
+if ! grep -q 'welcome@welcome' "$report"; then
+  echo "CALAMARES CHECK FAILED: the welcome module was not loaded"
+  false
+fi
+if ! grep -q 'Loaded branding component' "$report"; then
   echo "CALAMARES CHECK FAILED: the RAVNIX branding was not loaded"
-  exit 1
+  false
 fi
 echo "CALAMARES CHECK PASSED (exit $status)"
 '''
