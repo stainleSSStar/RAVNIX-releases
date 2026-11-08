@@ -1,9 +1,19 @@
-[$Version]
-update_info=kdeglobals.upd:RAVNIX
-
+# The desktop of RAVNIX.
+#
+# The colour scheme is read by the desktop under the name "RAVNIX-PurpleNeon".
+# The file with that name has to be in the profile of the system and in the
+# profile of the user, otherwise the desktop falls back to the standard
+# colours, and the panel of the desktop stays white.
+#
+# The dark icons belong to the dark colours: the light icons look out of place
+# on a dark desktop.
 [General]
 ColorScheme=RAVNIX-PurpleNeon
 
 [KDE]
 ColorScheme=RAVNIX-PurpleNeon
-lookAndFeelPackage=org.kde.breezedark.desktop
+widgetStyle=Breeze
+lookAndFeelPackage=org.kde.ravnix.purpleneon.desktop
+
+[Icons]
+Theme=breeze-dark

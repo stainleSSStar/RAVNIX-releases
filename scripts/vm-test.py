@@ -70,8 +70,15 @@ class Console:
     def expect(self, pattern, timeout=900):
         start = time.monotonic()
         until = min(self.deadline, start + timeout)
+        grace = None
         while pattern not in self.data[self.cursor:]:
-            if time.monotonic() > until or self.process.poll() is not None:
+            if grace is not None:
+                # The guest writes the reason of the failure after the
+                # marker, so the console is read for a few more seconds
+                # before the machine is stopped.
+                if time.monotonic() > grace:
+                    raise RuntimeError('Guest probe failed')
+            elif time.monotonic() > until or self.process.poll() is not None:
                 waited = int(time.monotonic() - start)
                 raise RuntimeError(
                     f'Console did not receive {pattern!r} after {waited}s '
@@ -85,8 +92,8 @@ class Console:
             self.data.extend(chunk)
             print(chunk.decode('utf-8', 'replace'), end='', flush=True)
             self.answer_terminal_queries(chunk)
-            if b'\r\nRAVNIX_VM_FAIL\r\n' in self.data[self.cursor:]:
-                raise RuntimeError('Guest probe failed')
+            if grace is None and b'\r\nRAVNIX_VM_FAIL\r\n' in self.data[self.cursor:]:
+                grace = time.monotonic() + 10
         self.cursor = self.data.index(pattern, self.cursor) + len(pattern)
 
     def answer_terminal_queries(self, chunk):
@@ -137,6 +144,116 @@ def probe_command(body, marker):
     encoded = base64.b64encode(probe_script(body, marker).encode()).decode('ascii')
     return ('bash -c "$(printf %s ' + shlex.quote(encoded) + ' | base64 -d)"'
             ' || printf "\\nRAVNIX_VM_FAIL\\n"')
+
+CALAMARES = '''
+# The graphical installer has to start. The test does not drive the wizard,
+# but it checks the configuration of the wizard and starts it without a
+# display: a wizard that cannot find the welcome module or the branding of
+# RAVNIX does not start at all, and nothing else in the test would notice
+# that.
+#
+# The configuration is checked first, because it can be checked without a
+# display, and because a broken file of a module keeps the wizard from
+# starting at all.
+config=$(ls -d /nix/store/*-calamares-nixos-extensions-*/etc/calamares 2>/dev/null | head -1 || true)
+if [ -z "$config" ]; then
+  echo "CALAMARES CHECK FAILED: the configuration of the wizard was not found"
+  false
+fi
+echo "the configuration of the wizard is in $config"
+
+# The key of the storage requirement belongs to the block of the requirements.
+# A line without the indentation breaks the file, and the wizard does not
+# start with a broken file: that is the failure a user ran into.
+if ! grep -qE '^[[:space:]]+requiredStorage:' "$config/modules/welcome.conf"; then
+  echo "CALAMARES CHECK FAILED: the storage requirement of the welcome module lost its indentation"
+  grep -n 'requiredStorage' "$config/modules/welcome.conf" || true
+  false
+fi
+
+# The branding of RAVNIX has to be the one the wizard shows.
+if ! grep -qE '^branding:[[:space:]]*ravnix' "$config/settings.conf"; then
+  echo "CALAMARES CHECK FAILED: the wizard does not use the branding of RAVNIX"
+  false
+fi
+
+# Every module of the wizard needs a description of itself, or the wizard
+# cannot create it.
+if ! ls /nix/store/*-calamares-3*/lib/calamares/modules/welcome/module.desc >/dev/null 2>&1; then
+  echo "CALAMARES CHECK FAILED: the welcome module of the wizard is not there"
+  false
+fi
+
+home=$(mktemp -d)
+runtime=$(mktemp -d)
+# The wizard writes its log into the home directory of the user it runs as,
+# so the directory has to belong to that user.
+chown ravnix "$home" "$runtime"
+chmod 700 "$home" "$runtime"
+log="$home/calamares.log"
+
+# The wizard talks to the service of Calamares over the session bus of the
+# D-Bus, and it stops at once when there is none. The test gives the wizard a
+# bus of its own, because the session of the desktop is not there in a
+# machine that is tested over a serial console.
+#
+# The status is read with "|| status=$?" and not with a plain command: a
+# command that fails inside a list with "||" does not call the error trap of
+# the test, and the test would stop before it could show the log of the
+# wizard.
+status=0
+if command -v dbus-run-session >/dev/null 2>&1; then
+  sudo -u ravnix env PATH="$PATH" HOME="$home" XDG_RUNTIME_DIR="$runtime" \
+    QT_QPA_PLATFORM=offscreen \
+    dbus-run-session -- timeout 60 calamares -d > "$log" 2>&1 || status=$?
+else
+  sudo -u ravnix env PATH="$PATH" HOME="$home" XDG_RUNTIME_DIR="$runtime" \
+    QT_QPA_PLATFORM=offscreen \
+    timeout 60 calamares -d > "$log" 2>&1 || status=$?
+fi
+
+# The wizard writes its log into the cache of the user as well, and it does
+# not always write to the console. Both are read.
+report="$log"
+if [ -f "$home/.cache/Calamares/session.log" ]; then
+  cat "$log" "$home/.cache/Calamares/session.log" > "$home/calamares-all.log"
+  report="$home/calamares-all.log"
+fi
+echo "the wizard ended with the status $status"
+# The log of the wizard is the only place that knows why the wizard did not
+# start, so it is printed in every case.
+echo "--- the log of the wizard ---"
+head -30 "$report" || true
+echo "..."
+# The lines that the check below looks for are printed as well, so the report
+# of the test says what was found and not only what the wizard wrote first.
+grep -aE 'welcome@welcome|Loaded branding|cannot be created|not found in module search paths|loading complete' \
+  "$report" | head -30 || true
+echo "..."
+tail -20 "$report" || true
+echo "--- the end of the log ---"
+
+# A module that cannot be created is the failure a user ran into: the wizard
+# does not start at all when the file of the module is broken.
+if grep -q 'cannot be created' "$report"; then
+  echo "CALAMARES CHECK FAILED: a module of the wizard could not be created"
+  false
+fi
+# A module that the wizard cannot find is the other failure a user ran into.
+if grep -q 'not found in module search paths' "$report"; then
+  echo "CALAMARES CHECK FAILED: a module of the wizard was not found"
+  false
+fi
+if ! grep -q 'welcome@welcome' "$report"; then
+  echo "CALAMARES CHECK FAILED: the welcome module was not loaded"
+  false
+fi
+if ! grep -q 'Loaded branding component' "$report"; then
+  echo "CALAMARES CHECK FAILED: the RAVNIX branding was not loaded"
+  false
+fi
+echo "CALAMARES CHECK PASSED (exit $status)"
+'''
 
 HEALTH = '''
 # Every check is run even when an earlier one failed, so one run reports all
@@ -194,9 +311,21 @@ else
 fi
 check systemctl is-active display-manager
 check test -f /run/current-system/sw/share/backgrounds/ravnix/ravnix-wallpaper.jpg
+# The desktop of KDE reads the colour schemes from the files that end in
+# ".colors". Without that file the desktop falls back to the standard colours
+# and the panel of the desktop stays white.
+check test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colors
 check test -f /run/current-system/sw/share/color-schemes/RAVNIX-PurpleNeon.colorscheme
+# The global theme of the distribution is a package of the Plasma workspace.
+# Without it the settings of the desktop only offer the themes of KDE.
+check test -f /run/current-system/sw/share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/metadata.json
+check test -f /run/current-system/sw/share/plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/contents/defaults
 check test -f /run/current-system/sw/share/sddm/themes/ravnix/Main.qml
 check test -f /run/current-system/sw/share/ravnix/fastfetch-logo.txt
+# A new account starts with the colours and the theme of the distribution.
+check grep -q '^ColorScheme=RAVNIX-PurpleNeon$' /etc/skel/.config/kdeglobals
+check grep -q 'lookAndFeelPackage=org.kde.ravnix.purpleneon.desktop' /etc/skel/.config/kdeglobals
+check grep -q '^cursorTheme=breeze_cursors$' /etc/skel/.config/kcminputrc
 # The fastfetch branding has to point at a file that really exists.
 fastfetch_logo=$(grep '"source"' /etc/skel/.config/fastfetch/config.jsonc | head -1 | cut -d '"' -f 4 || true)
 check test -f "$fastfetch_logo"
@@ -476,12 +605,17 @@ def test_mode(iso, mode, out):
             # there and nowhere else.
             console.run(HEALTH.replace('$USER','ravnix')+'\ncommand -v ravnix-install; command -v ravnix-guide; command -v calamares; test -f /etc/ravnix/live; sudo -u ravnix sudo -n true; nm-online -q --timeout=90', 'RAVNIX_LIVE_OK')
             phase.mark('live health check')
+            # The graphical installer has to start on the live medium. Nothing
+            # else in the test drives it, so it is started here without a
+            # display and its log is read.
+            console.run(CALAMARES, 'RAVNIX_CALAMARES_CHECKED')
+            phase.mark('calamares starts')
             print('INSTALL:', mode, flush=True)
             # The serial console is part of the installation, so the test needs
             # one installation and not two.
             console.send("ravnix-install --kernel-params 'console=tty0 console=ttyS0,115200n8' || printf '\\nRAVNIX_VM_FAIL\\n'\n")
             device='/dev/sda' if mode=='bios' else '/dev/nvme0n1'
-            for prompt,answer in [('Target whole disk:',device),('Hostname:','ravnix-test'),('Username:','tester'),('Timezone [Europe/Warsaw]:','Europe/Warsaw'),(f'Type ERASE {device} to continue:',f'ERASE {device}')]:
+            for prompt,answer in [('Target whole disk:',device),('Hostname [ravnix]:','ravnix-test'),('Username [operator]:','tester'),('Timezone [Europe/Warsaw]:','Europe/Warsaw'),(f'Type ERASE {device} to continue:',f'ERASE {device}')]:
                 console.expect(prompt.encode(),timeout=120)
                 console.send(answer+'\n')
             print('WAIT: installation and password prompt', mode, flush=True)

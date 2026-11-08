@@ -8,6 +8,16 @@ fail() { echo "Error: $*" >&2; exit 1; }
 partition_path() {
  if [[ $1 == *[0-9] ]]; then printf '%sp%s\n' "$1" "$2"; else printf '%s%s\n' "$1" "$2"; fi
 }
+resolve_disk() {
+ # The user may write "sda" or "/dev/sda"; the rest of the installer works
+ # with the full path of the device.
+ case $1 in
+  /dev/*) printf '%s\n' "$1";;
+  */*) fail 'Choose a disk of this machine, for example sda or /dev/sda.';;
+  '') fail 'No disk was chosen.';;
+  *) printf '/dev/%s\n' "$1";;
+ esac
+}
 validate_username() {
  [[ $1 =~ ^[a-z_][a-z0-9_-]{0,31}$ && $1 != root && $1 != ravnix && $1 != nixos ]] || fail 'Invalid or reserved username.'
  ! getent passwd "$1" >/dev/null || fail 'Username already exists; choose another.'
@@ -259,8 +269,26 @@ automated_installation() {
  sync
  echo "RAVNIX installation complete on $disk."
 }
+say() {
+ printf '\n%s\n' "$*"
+}
+rule() {
+ printf '%s\n' '--------------------------------------------------------------------'
+}
+ask() {
+ # ask "<question>" ["<default>"] — the answer of the user ends up in the
+ # variable "answer". An empty answer takes the default, and an answer that
+ # ends without one stops the installer before anything is written.
+ local question=$1 default=${2-}
+ if [[ -n $default ]]; then
+  read -r -p "$question [$default]: " answer || fail 'The answer ended before the installation was finished.'
+ else
+  read -r -p "$question: " answer || fail 'The answer ended before the installation was finished.'
+ fi
+ answer=${answer:-$default}
+}
 interactive_installation() {
- local mounts entries mode=bios hostname username timezone answer identity current root efi bootdevice
+ local mounts entries mode=bios hostname username timezone identity current root efi bootdevice model
  check_live_medium
  [[ $EUID == 0 ]] || fail 'Run sudo ravnix-install.'
  [[ -t 0 && -t 1 ]] || fail 'Interactive terminal required.'
@@ -275,28 +303,103 @@ interactive_installation() {
  # verify both hosts before anything destructive happens.
  curl -fsSI --max-time 20 https://github.com/ >/dev/null || fail 'github.com unreachable; the pinned Nixpkgs source cannot be fetched. Configure networking with nmtui first.'
  [[ ! -d /sys/firmware/efi ]] || mode=uefi
- echo "RAVNIX text installer — detected boot mode: $mode"
+
+ say 'RAVNIX text installer'
+ rule
+ echo 'This installer copies RAVNIX onto one whole disk and makes it the'
+ echo 'system of this machine. The disk you choose is erased completely.'
+ echo
+ echo 'Before you start:'
+ echo '  * the machine needs an internet connection - the installation'
+ echo '    downloads the parts of the desktop that are not on this medium;'
+ echo '  * back up everything you want to keep, there is no undo;'
+ echo '  * the installation takes about ten minutes, depending on the'
+ echo '    machine and on the connection.'
+ echo
+ echo 'There are four questions below. Each of them is explained, and all'
+ echo 'of them can be changed later - except the disk.'
+ rule
+
+ say 'Step 1 of 4 - the disk RAVNIX is installed on'
+ rule
+ echo 'These are the disks of this machine:'
+ echo
  lsblk -d -o NAME,SIZE,MODEL,TRAN,RO
- read -r -p 'Target whole disk: ' disk
- disk=$(readlink -f -- "$disk") || fail 'Cannot resolve disk.'
+ echo
+ echo 'Type the name of the disk RAVNIX should use, for example "sda" or'
+ echo '"/dev/sda". Pick it by the model name and by the size: the disk this'
+ echo 'medium was started from is the USB stick, and it must not be chosen.'
+ ask 'Target whole disk'
+ disk=$(resolve_disk "$answer") || fail 'The disk could not be read.'
+ disk=$(readlink -f -- "$disk") || fail 'Cannot resolve the disk.'
  validate_disk "$disk"
  identity=$(lsblk -bdn -o MAJ:MIN,SIZE,MODEL,SERIAL "$disk") || fail 'Cannot inspect disk identity.'
- read -r -p 'Hostname: ' hostname
- [[ $hostname =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] || fail 'Invalid hostname.'
- read -r -p 'Username: ' username
- validate_username "$username"
- read -r -p 'Timezone [Europe/Warsaw]: ' timezone
- timezone=${timezone:-Europe/Warsaw}
- [[ $timezone != /* && $timezone != *..* && $timezone =~ ^[a-zA-Z0-9_+/-]+$ && -f /etc/zoneinfo/$timezone ]] || fail 'Invalid timezone.'
- printf '\nSelected disk (ALL DATA WILL BE LOST):\n'
+ model=$(lsblk -bdn -o MODEL "$disk" 2>/dev/null | tr -s ' ') || model=''
+ echo
+ echo "You chose $disk${model:+ - $model}:"
  lsblk -d -o NAME,SIZE,MODEL,SERIAL "$disk"
- echo "Install RAVNIX ($mode), hostname $hostname, user $username, timezone $timezone."
- read -r -p "Type ERASE $disk to continue: " answer
+
+ say 'Step 2 of 4 - the name of the machine'
+ rule
+ echo 'The hostname is the name of this computer on the network. It shows up'
+ echo 'in the terminal prompt and in the list of the neighbours.'
+ echo
+ echo 'It may contain letters, digits and hyphens, and it has to start with'
+ echo 'a letter or a digit. Examples: ravnix, workstation, ravnix-pc'
+ ask 'Hostname' 'ravnix'
+ hostname=$answer
+ [[ $hostname =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] || fail 'Invalid hostname. Use letters, digits and hyphens, for example: ravnix-pc'
+
+ say 'Step 3 of 4 - the account you log in with'
+ rule
+ echo 'The username is the account of the ordinary user of this machine. It'
+ echo 'is needed to log in, and it may run programs with administrator'
+ echo 'rights through sudo, so the installer asks for its password.'
+ echo
+ echo 'It may contain small letters, digits, underscores and hyphens, and it'
+ echo 'has to start with a letter or an underscore. Examples: operator, jan,'
+ echo 'anna_kowalska'
+ ask 'Username' 'operator'
+ username=$answer
+ validate_username "$username"
+
+ say 'Step 4 of 4 - the timezone'
+ rule
+ echo 'The timezone sets the clock and the calendar of the system. Use the'
+ echo 'name of a zone of /usr/share/zoneinfo, for example Europe/Warsaw,'
+ echo 'Europe/London or America/New_York.'
+ ask 'Timezone' 'Europe/Warsaw'
+ timezone=$answer
+ timezone=${timezone:-Europe/Warsaw}
+ [[ $timezone != /* && $timezone != *..* && $timezone =~ ^[a-zA-Z0-9_+/-]+$ && -f /etc/zoneinfo/$timezone ]] || fail 'Invalid timezone. Use a zone of /usr/share/zoneinfo, for example: Europe/Warsaw'
+
+ say 'Please check the answers'
+ rule
+ printf '  %-9s %s\n' 'Disk' "$disk${model:+ - $model}"
+ printf '  %-9s %s\n' 'Boot mode' "$mode"
+ printf '  %-9s %s\n' 'Hostname' "$hostname"
+ printf '  %-9s %s\n' 'Username' "$username"
+ printf '  %-9s %s\n' 'Timezone' "$timezone"
+ echo
+ echo "Everything on $disk is erased now, and it cannot be recovered."
+ echo 'To start the installation, type the following line:'
+ echo
+ echo "    ERASE $disk"
+ ask "Type ERASE $disk to continue"
  [[ $answer == "ERASE $disk" ]] || fail 'Cancelled; disk was not modified.'
  validate_disk "$disk"
  current=$(lsblk -bdn -o MAJ:MIN,SIZE,MODEL,SERIAL "$disk") || fail 'Cannot inspect disk identity.'
  [[ $identity == "$current" ]] || fail 'Disk identity changed; cancelled.'
  bootdevice=$(boot_device "$disk" "$mode")
+
+ say 'Preparing the disk'
+ echo '  - a new partition table (GPT)'
+ if [[ $mode == uefi ]]; then
+  echo '  - 512 MB for the EFI system partition, mounted at /boot/efi'
+ else
+  echo '  - 2 MB for the BIOS bootloader'
+ fi
+ echo '  - the rest of the disk for the root filesystem (ext4)'
  parted -s "$disk" mklabel gpt
  if [[ $mode == uefi ]]; then
   parted -s "$disk" mkpart ESP fat32 1MiB 513MiB
@@ -311,29 +414,79 @@ interactive_installation() {
  udevadm settle
  root=$(partition_path "$disk" 2)
  efi=$(partition_path "$disk" 1)
+ echo '  - the filesystems are being created'
  [[ $mode != uefi ]] || mkfs.fat -F 32 -n RAVNIX_EFI "$efi"
  mkfs.ext4 -F -L RAVNIX_ROOT "$root"
  mount -t ext4 "$root" /mnt
  if [[ $mode == uefi ]]; then mkdir -p /mnt/boot/efi; mount -t vfat "$efi" /mnt/boot/efi; fi
+ echo '  - the disk is ready'
+
+ say 'Writing the configuration of the system'
+ echo '  - the name of the machine, the account and the timezone'
+ echo '  - the bootloader that matches the firmware of this machine'
  write_configuration /mnt "$hostname" "$username" "$timezone" "$mode" "$bootdevice"
+
+ say 'Installing RAVNIX'
+ echo '  About ten gigabytes are copied into the new system. The screen'
+ echo '  stays quiet while this happens; it is not stuck.'
  install_system /mnt
- echo "Set password for $username (required for login and sudo):"
+
+ say "Step 5 - the password of $username"
+ rule
+ echo 'The password is needed to log in and to use sudo. It is asked for'
+ echo 'twice and it is not written down anywhere.'
+ echo
+ echo 'Careful: the keyboard layout that is active now decides which'
+ echo 'characters the password contains. If your password has characters'
+ echo 'that this layout does not have, change the layout in the menu of the'
+ echo 'desktop first and then come back to this terminal.'
  nixos-enter --root /mnt --command "passwd $username"
  # A successful passwd command is required before unmounting or offering reboot.
  sync
+
+ say 'Finishing'
+ echo '  - everything is written to the disk'
  unmount_target
- echo 'RAVNIX installation complete. Remove the ISO/USB after powering off.'
- read -r -p 'Reboot now? [y/N]: ' answer
+ echo
+ echo 'The installation is finished.'
+ echo
+ echo '  1. shut the machine down'
+ echo '  2. take the USB stick out'
+ echo '  3. start the machine again'
+ echo
+ echo 'The first start takes a little longer: the system writes the'
+ echo 'bootloader and the desktop comes up for the first time.'
+ read -r -p 'Reboot now? [y/N]: ' answer || true
  if [[ $answer == y || $answer == Y ]]; then reboot; fi
 }
 main() {
  if [[ ${1:-} == --help || ${1:-} == -h ]]; then
   echo 'Usage: sudo ravnix-install [--kernel-params "<parameters>"]'
-  echo 'Text installer: dedicated whole disk, GPT/ext4, BIOS or UEFI; internet; 16 GiB minimum.'
-  echo 'Erases selected disk only after exact confirmation. No dual boot, encryption, LVM or RAID.'
-  echo 'Extra kernel parameters, for example "console=ttyS0,115200n8" for a serial console.'
   echo ''
-  echo 'The graphical installer prepares the disk and calls the installation with:'
+  echo 'Text installer — installs RAVNIX onto one whole disk.'
+  echo ''
+  echo 'What it does:'
+  echo '  * erases one whole disk and installs RAVNIX on it,'
+  echo '  * asks for a hostname, an account and a timezone,'
+  echo '  * asks for the password of the new account,'
+  echo '  * leaves the root account locked and needs a password for sudo.'
+  echo ''
+  echo 'What it needs:'
+  echo '  * a dedicated disk of at least 16 GiB — the USB stick you booted'
+  echo '    from is not one of them,'
+  echo '  * an internet connection, because the installation downloads the'
+  echo '    parts of the desktop that are not on this medium,'
+  echo '  * about ten minutes.'
+  echo ''
+  echo 'The disk is erased only after you type: ERASE /dev/...'
+  echo 'There is no dual boot, no encryption, no LVM, no RAID and no swap.'
+  echo 'Extra kernel parameters, for example "console=ttyS0,115200n8" for a'
+  echo 'serial console:'
+  echo ''
+  echo '  ravnix-install --kernel-params "console=ttyS0,115200n8"'
+  echo ''
+  echo 'The graphical installer prepares the disk and calls the installation'
+  echo 'with:'
   echo '  ravnix-install --non-interactive --root <mount point> --disk <device> --hostname <name> --username <name> [--timezone <zone>]'
   return
  fi

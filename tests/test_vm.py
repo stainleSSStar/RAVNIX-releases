@@ -358,7 +358,10 @@ class VMProtocol(unittest.TestCase):
             fake(command,'#!/bin/sh\nexit 0\n')
         share=root/'sw'/'share'
         for relative in ('backgrounds/ravnix/ravnix-wallpaper.jpg',
+                         'color-schemes/RAVNIX-PurpleNeon.colors',
                          'color-schemes/RAVNIX-PurpleNeon.colorscheme',
+                         'plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/metadata.json',
+                         'plasma/look-and-feel/org.kde.ravnix.purpleneon.desktop/contents/defaults',
                          'sddm/themes/ravnix/Main.qml','ravnix/fastfetch-logo.txt'):
             (share/relative).parent.mkdir(parents=True,exist_ok=True)
             (share/relative).touch()
@@ -366,6 +369,13 @@ class VMProtocol(unittest.TestCase):
         (root/'etc'/'os-release').write_text('ID=ravnix\nID_LIKE=nixos\n')
         (root/'etc'/'fastfetch.jsonc').write_text(
             '{"source": "%s"}\n'%(share/'ravnix'/'fastfetch-logo.txt'))
+        # The configuration of the desktop of a new account.
+        skel=root/'etc'/'skel'/'.config'
+        skel.mkdir(parents=True)
+        (skel/'kdeglobals').write_text(
+            '[General]\nColorScheme=RAVNIX-PurpleNeon\n\n'
+            '[KDE]\nlookAndFeelPackage=org.kde.ravnix.purpleneon.desktop\n')
+        (skel/'kcminputrc').write_text('[Mouse]\ncursorTheme=breeze_cursors\n')
         package=root/'store'/'8p5pbqx8z842kwa4k0csiv0jdydr2nlz-plasma-nm-6.6.6'
         for relative in ('lib/qt-6/plugins/plasma/applets/org.kde.plasma.networkmanagement.so',
                          'share/kcm_networkmanagement/qml/main.qml'):
@@ -378,6 +388,10 @@ class VMProtocol(unittest.TestCase):
         script=script.replace('/etc/os-release',str(root/'etc'/'os-release'))
         script=script.replace('/etc/skel/.config/fastfetch/config.jsonc',
                                str(root/'etc'/'fastfetch.jsonc'))
+        script=script.replace('/etc/skel/.config/kdeglobals',
+                               str(root/'etc'/'skel'/'.config'/'kdeglobals'))
+        script=script.replace('/etc/skel/.config/kcminputrc',
+                               str(root/'etc'/'skel'/'.config'/'kcminputrc'))
         script=script.replace('/run/current-system/sw',str(root/'sw'))
         script=script.replace('/nix/store',str(root/'store'))
         environment={'PATH':str(bindir)+':/usr/bin:/bin','USER':'ravnix','HOME':str(root)}

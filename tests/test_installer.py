@@ -50,6 +50,50 @@ class InstallerGuards(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn('Text installer', result.stdout)
 
+    def test_a_bare_disk_name_becomes_a_device(self):
+        # The user may write "sda" or "/dev/sda"; the rest of the installer
+        # works with the full path of the device.
+        self.assertEqual(self.shell('resolve_disk sda').stdout.strip(), '/dev/sda')
+        self.assertEqual(self.shell('resolve_disk /dev/nvme0n1').stdout.strip(), '/dev/nvme0n1')
+        for bad in ['', 'some/where']:
+            with self.subTest(disk=bad):
+                self.assertNotEqual(self.shell('resolve_disk '+shlex.quote(bad)).returncode, 0)
+
+    def test_every_step_of_the_installer_explains_itself(self):
+        # The text installer is used by people who have not installed an
+        # operating system before, so every question says what it is for and
+        # what may be written into it.
+        source = (ROOT/'scripts/install.sh').read_text()
+        explanations = [
+            ('Target whole disk', 'the disk RAVNIX should use'),
+            ('Hostname', 'the name of this computer on the network'),
+            ('Username', 'the account of the ordinary user'),
+            ('Timezone', 'the clock and the calendar'),
+            ('password', 'needed to log in and to use sudo'),
+            ('keyboard layout', 'decides which'),
+        ]
+        for prompt, explanation in explanations:
+            with self.subTest(prompt=prompt):
+                self.assertIn(prompt, source)
+                self.assertIn(explanation, source)
+
+    def test_the_installer_shows_the_answers_before_it_erases_anything(self):
+        # The answers are printed as a summary, and the disk is only erased
+        # after the exact confirmation.
+        source = (ROOT/'scripts/install.sh').read_text()
+        self.assertIn('Please check the answers', source)
+        self.assertLess(source.index('Please check the answers'),
+                        source.index('[[ $answer == "ERASE $disk" ]]'))
+
+    def test_the_installer_offers_the_defaults_of_the_answers(self):
+        # An empty answer takes the default, so a user in a hurry does not
+        # have to type anything.
+        source = (ROOT/'scripts/install.sh').read_text()
+        self.assertIn("ask 'Hostname' 'ravnix'", source)
+        self.assertIn("ask 'Username' 'operator'", source)
+        self.assertIn("ask 'Timezone' 'Europe/Warsaw'", source)
+        self.assertIn('answer=${answer:-$default}', source)
+
     def test_confirmation_and_identity_recheck_precede_formatting(self):
         source = (ROOT/'scripts/install.sh').read_text()
         self.assertLess(source.index('[[ $answer == "ERASE $disk" ]]'),source.index('parted -s "$disk" mklabel'))

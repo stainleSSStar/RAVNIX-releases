@@ -61,9 +61,12 @@ assert 'ravnix-boot-bios.png' in live and 'ravnix-boot-efi.png' in live
 
 # Branding assets must exist.
 for asset in ('RAVNIX-PurpleNeon.colorscheme', 'ravnix-wallpaper.jpg', 'fastfetch-logo.txt',
-              'btop-ravnix.theme', 'kdeglobals', 'konsolerc', 'RAVNIX.profile',
+              'btop-ravnix.theme', 'kdeglobals', 'kcminputrc', 'konsolerc', 'RAVNIX.profile',
               'ravnix-boot-efi.png', 'ravnix-boot-bios.png'):
     assert (ROOT / 'assets' / asset).is_file(), asset
+for asset in ('metadata.json', 'contents/defaults',
+              'contents/layouts/org.kde.plasma.desktop-layout.js'):
+    assert (ROOT / 'assets' / 'ravnix-lookandfeel' / asset).is_file(), asset
 for asset in ('Main.qml', 'metadata.desktop', 'theme.conf', 'background.jpg', 'angle-down.png'):
     assert (ROOT / 'assets' / 'sddm-ravnix' / asset).is_file(), asset
 for asset in ('ravnix-logo.png', 'ravnix-welcome.png', 'ravnix-background.jpg'):

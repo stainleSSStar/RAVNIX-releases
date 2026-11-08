@@ -180,6 +180,44 @@ class GraphicalInstallerModule(unittest.TestCase):
                       live)
         self.assertEqual(live.count('--prefix XDG_DATA_DIRS'), 1)
 
+    def test_the_configuration_of_the_welcome_stays_valid(self):
+        # The wizard does not start at all when the file of the welcome module
+        # is broken. The key of the space belongs to the block of
+        # "requirements", so the line has to keep its indentation: a line
+        # without it is not valid YAML and the module cannot be created.
+        live = (ROOT/'modules/live.nix').read_text()
+        self.assertIn(r"s/^([[:space:]]*)requiredStorage:.*$/\1requiredStorage: 16/", live)
+        self.assertIn(r"s/^([[:space:]]*)setRootPassword:.*$/\1setRootPassword: false/", live)
+        # A line that loses its indentation is the defect that stopped the
+        # wizard on the first release of the graphical installer.
+        self.assertNotIn("requiredStorage:.*$/requiredStorage: 16'", live)
+        self.assertNotIn("setRootPassword:.*$/setRootPassword: false'", live)
+
+    def test_the_changed_configuration_of_the_welcome_is_valid_yaml(self):
+        # The same change is made on a copy of the file of the NixOS
+        # extensions, and the result is read back. The test does not need the
+        # package: the shape of the file is what matters.
+        configuration = (
+            '# a comment\n'
+            'showReleaseNotesUrl: true\n'
+            '\n'
+            'requirements:\n'
+            '    requiredStorage: 10\n'
+            '    requiredRam: 3.0\n'
+            '\n'
+            '    required:\n'
+            '        - storage\n'
+        )
+        import re as regex
+        changed = regex.sub(r'^(\s*)requiredStorage:.*$', r'\1requiredStorage: 16',
+                            configuration, flags=regex.M)
+        self.assertIn('    requiredStorage: 16', changed)
+        # Every line of the block has to keep its four spaces.
+        for line in changed.splitlines():
+            with self.subTest(line=line):
+                if line.strip().startswith('required'):
+                    self.assertTrue(line.startswith('    '), line)
+
     def test_the_graphical_installer_is_the_calamares_package(self):
         # The package of the NixOS extensions is a function that takes its
         # arguments, so it cannot be overridden like a derivation.

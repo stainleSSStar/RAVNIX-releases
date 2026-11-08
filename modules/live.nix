@@ -48,13 +48,16 @@ let
       cp ${./calamares/config/partition.conf} $out/etc/calamares/modules/partition.conf
       # The installed system needs the same space as the text installer asks
       # for, so the graphical installer refuses a smaller disk right away.
-      sed -i -E 's/^[[:space:]]*requiredStorage:.*$/requiredStorage: 16/' \
+      # The indentation of the line has to be kept: the key belongs to the
+      # block of "requirements", and a line without it breaks the file, and
+      # the wizard does not start at all with a broken file.
+      sed -i -E 's/^([[:space:]]*)requiredStorage:.*$/\1requiredStorage: 16/' \
         $out/etc/calamares/modules/welcome.conf
       # The RAVNIX policy keeps the root account locked: the account of the
       # administrator is the only one with a password, and it needs one for
       # sudo. Without this the graphical installer would ask for a root
       # password and unlock the root account.
-      sed -i -E 's/^[[:space:]]*setRootPassword:.*$/setRootPassword: false/' \
+      sed -i -E 's/^([[:space:]]*)setRootPassword:.*$/\1setRootPassword: false/' \
         $out/etc/calamares/modules/users.conf
     '';
   });
