@@ -271,7 +271,7 @@ class VM:
                     self.process.wait()
 
 
-def command(directory, mode, disk, iso=None, accel='tcg'):
+def command(directory, mode, disk, iso=None, accel='tcg', variables='vars.fd'):
     serial = directory/'serial.sock'
     serial.unlink(missing_ok=True)
     # More guest cores mean a faster store copy during the installation.
@@ -294,11 +294,17 @@ def command(directory, mode, disk, iso=None, accel='tcg'):
         code = Path('/usr/share/OVMF/OVMF_CODE_4M.fd')
         if not code.exists():
             raise RuntimeError('Install ovmf')
-        variables = directory/'vars.fd'
-        if not variables.exists():
-            shutil.copyfile('/usr/share/OVMF/OVMF_VARS_4M.fd',variables)
+        # Every phase of the test gets its own variables of the firmware. The
+        # firmware keeps the order of the boot entries it has found, and a
+        # stale entry for a disk that is empty now leaves the machine in the
+        # EFI shell instead of booting the medium. The variables of one phase
+        # are shared by the machines of that phase, because the firmware
+        # writes them when it shuts down.
+        store = directory/variables
+        if not store.exists():
+            shutil.copyfile('/usr/share/OVMF/OVMF_VARS_4M.fd',store)
         args += ['-drive',f'if=pflash,format=raw,readonly=on,file={code}',
-                 '-drive',f'if=pflash,format=raw,file={variables}']
+                 '-drive',f'if=pflash,format=raw,file={store}']
     if iso:
         args += ['-cdrom',str(iso),'-boot','order=d']
     else:
@@ -349,7 +355,7 @@ def graphical_installation(directory, mode, disk, iso, accel, out, phase):
     # The disk of the text installation is wiped: the graphical installer
     # starts with an empty disk as well.
     subprocess.run(['qemu-img','create','-f','raw',str(disk),'40G'],check=True)
-    args,serial=command(directory,mode,disk,iso,accel)
+    args,serial=command(directory,mode,disk,iso,accel,variables='vars-graphical.fd')
     with VM(args,serial,out,f'vm-{mode}-graphical-live',deadline=LIVE_DEADLINE) as console:
         quiet_bash(console,live=True)
         phase.mark('graphical live session ready')
@@ -380,7 +386,7 @@ def graphical_installation(directory, mode, disk, iso, accel, out, phase):
                     'sync; umount -R /mnt','RAVNIX_GRAPHICAL_PASSWORD')
         phase.mark('graphical password set')
         poweroff(console)
-    args,serial=command(directory,mode,disk,accel=accel)
+    args,serial=command(directory,mode,disk,accel=accel,variables='vars-graphical.fd')
     with VM(args,serial,out,f'vm-{mode}-graphical',deadline=SESSION_DEADLINE) as console:
         console.expect(b'login:',timeout=1800)
         console.send('tester\n')

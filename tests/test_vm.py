@@ -165,6 +165,16 @@ class VMProtocol(unittest.TestCase):
         vm.quiet_bash(console,live=False)
         self.assertEqual(console.expect.call_args_list[0].args[0],b'tester@ravnix-test ~ > ')
 
+    def test_every_phase_of_the_test_gets_its_own_firmware_variables(self):
+        # The firmware keeps the order of the boot entries it has found. A
+        # stale entry for a disk that is empty now leaves the machine in the
+        # EFI shell instead of booting the medium, so the graphical phase
+        # needs variables of its own.
+        source = Path(vm.__file__).resolve().read_text()
+        self.assertEqual(source.count("variables='vars-graphical.fd'"), 2)
+        self.assertIn("shutil.copyfile('/usr/share/OVMF/OVMF_VARS_4M.fd',store)", source)
+        self.assertNotIn("if not variables.exists()", source)
+
     def test_the_graphical_installation_keeps_the_serial_console(self):
         # The serial console is the only way into the installed system, so the
         # graphical installation has to ask for the console parameters, the way
