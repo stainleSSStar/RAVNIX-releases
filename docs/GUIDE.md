@@ -52,12 +52,17 @@ store and does not have to be downloaded again.
 
 ## Appearance
 
-The wallpaper, the colour scheme and the greeter theme are RAVNIX specific:
+The wallpaper, the colour scheme, the global theme and the greeter theme are
+RAVNIX specific:
 
 * The **greeter** (the screen before login) already uses the RAVNIX wallpaper
   and the Purple Neon panel, so nothing looks stock before you log in.
-* The **desktop** applies the same wallpaper and colour scheme when the Plasma
-  shell starts.
+* The **desktop** starts with the Purple Neon colours, the dark icons and the
+  pointer of the distribution, and the wallpaper is applied as soon as the
+  Plasma shell is up.
+* The **global theme** "RAVNIX Purple Neon" stands in the settings of the
+  desktop next to the themes of KDE, so the colours, the icons, the pointer and
+  the decoration of the windows can be put back at any time.
 * **Konsole** uses the RAVNIX colour scheme with a slightly transparent
   background.
 * Every new account gets the RAVNIX profile in its home directory: the
@@ -65,9 +70,14 @@ The wallpaper, the colour scheme and the greeter theme are RAVNIX specific:
   configuration with the RAVNIX "R" logo. Files that already exist are left
   alone, so an account can change its own configuration.
 
+The colours of the desktop are put in place once, when the account logs in for
+the first time. A theme that is picked in the settings afterwards stays: the
+desktop does not put the colours of RAVNIX back.
+
 To change them, edit `modules/desktop.nix` and rebuild. The assets live in
-`assets/`: `ravnix-wallpaper.jpg`, `RAVNIX-PurpleNeon.colorscheme` and the
-`assets/sddm-ravnix/` greeter theme.
+`assets/`: `ravnix-wallpaper.jpg`, `RAVNIX-PurpleNeon.colorscheme`,
+`assets/ravnix-lookandfeel/` (the global theme) and the `assets/sddm-ravnix/`
+greeter theme.
 
 ## Text installation
 
